@@ -1,0 +1,256 @@
+'use strict';
+
+const path = require('path');
+const express = require('express');
+
+const config = require('./src/config');
+const catalogs = require('./src/catalogs');
+const metaBuilder = require('./src/meta');
+const mapper = require('./src/mapper');
+const plugins = require('./src/plugins');
+const cache = require('./src/cache');
+
+const app = express();
+const PORT = process.env.PORT || 7000;
+const VERSION = require('./package.json').version;
+
+app.disable('x-powered-by');
+app.set('trust proxy', true);
+
+// Addon clients fetch cross-origin; the protocol expects wide-open CORS.
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+
+/* ------------------------------------------------------------------ *
+ * Manifest                                                            *
+ * ------------------------------------------------------------------ */
+
+function buildManifest(cfg, baseUrl) {
+  const wanted = cfg.enabledCatalogs.length
+    ? catalogs.CATALOGS.filter((c) => cfg.enabledCatalogs.includes(c.id))
+    : catalogs.CATALOGS;
+
+  return {
+    id: 'community.nuvio.anime',
+    version: VERSION,
+    name: 'Nuvio Anime',
+    description:
+      'Anime catalogues driven by the AniList airing schedule — recently aired, latest episodes, ' +
+      'airing today, trending, seasonal and your own watch list. Every entry carries an IMDb or ' +
+      'TMDB ID so Nuvio local scrapers can resolve streams.',
+    // Served from this addon so the manifest never depends on someone else's CDN.
+    logo: `${baseUrl}/logo.svg`,
+    background: `${baseUrl}/background.svg`,
+    catalogs: wanted.map((c) => ({
+      id: c.id,
+      type: c.type,
+      name: c.name,
+      extra: c.extra,
+      extraSupported: c.extra.map((e) => e.name),
+    })),
+    resources: [
+      { name: 'catalog', types: ['series', 'movie'] },
+      // Titles that map to IMDb or TMDB are left to Cinemeta and Nuvio's own
+      // TMDB integration, which already model seasons correctly. Only the
+      // AniList-native IDs need metadata from here.
+      { name: 'meta', types: ['series', 'movie'], idPrefixes: ['anilist:', 'mal:', 'kitsu:'] },
+    ],
+    types: ['series', 'movie'],
+    idPrefixes: ['tt', 'tmdb:', 'anilist:', 'mal:', 'kitsu:'],
+    behaviorHints: {
+      configurable: true,
+      configurationRequired: false,
+      configurationURL: `${baseUrl}/configure`,
+    },
+    contactEmail: process.env.CONTACT_EMAIL || undefined,
+  };
+}
+
+function baseUrlOf(req) {
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  return `${proto}://${req.get('host')}`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Extra-argument parsing                                              *
+ * ------------------------------------------------------------------ */
+
+/** Stremio passes extras as `key=value&key=value` inside the path. */
+function parseExtra(segment, query) {
+  const out = {};
+  if (segment) {
+    for (const pair of decodeURIComponent(segment).split('&')) {
+      const index = pair.indexOf('=');
+      if (index === -1) continue;
+      out[pair.slice(0, index)] = decodeURIComponent(pair.slice(index + 1));
+    }
+  }
+  for (const [key, value] of Object.entries(query || {})) {
+    if (out[key] === undefined) out[key] = value;
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * Handlers                                                            *
+ * ------------------------------------------------------------------ */
+
+async function manifestHandler(req, res) {
+  const cfg = config.parse(req.params.config);
+  res.setHeader('Cache-Control', 'public, max-age=600');
+  res.json(buildManifest(cfg, baseUrlOf(req)));
+}
+
+async function catalogHandler(req, res) {
+  const cfg = config.parse(req.params.config);
+  const { type, id } = req.params;
+  const extra = parseExtra(req.params.extra, req.query);
+
+  const definition = catalogs.BY_ID.get(id);
+  if (!definition || definition.type !== type) {
+    return res.status(404).json({ metas: [], err: 'Unknown catalogue' });
+  }
+
+  try {
+    const metas = await catalogs.fetchCatalog(id, {
+      cfg,
+      skip: Number(extra.skip) || 0,
+      genre: extra.genre || null,
+      search: extra.search || null,
+    });
+
+    if (definition.requiresUser && !cfg.hasUser) {
+      console.warn(`[catalog] ${id} needs an AniList username; returning empty row`);
+    }
+
+    // Personal rows go stale fast; schedule rows are fine for a few minutes.
+    const maxAge = definition.requiresUser ? 60 : id === 'last-hour' ? 120 : 300;
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=600`);
+    res.json({ metas: metas || [] });
+  } catch (err) {
+    console.error(`[catalog] ${id} failed:`, err.message);
+    // An error object would make Nuvio show a broken row; an empty row is quieter.
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ metas: [] });
+  }
+}
+
+async function metaHandler(req, res) {
+  const cfg = config.parse(req.params.config);
+  const { type, id } = req.params;
+
+  try {
+    await mapper.load();
+    const media = await metaBuilder.resolveMedia(id);
+    if (!media) return res.status(404).json({ meta: null, err: 'Not found' });
+
+    const meta = await metaBuilder.toFullMeta(media, cfg, id);
+    meta.type = type;
+    res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=3600');
+    res.json({ meta });
+  } catch (err) {
+    console.error(`[meta] ${id} failed:`, err.message);
+    res.status(500).json({ meta: null, err: 'Lookup failed' });
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Routes                                                              *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Routes are written as explicit regexes rather than `/catalog/:type/:id.json`
+ * strings: catalogue IDs and extra arguments contain colons, dots, equals signs
+ * and ampersands, which the path-string parser splits in surprising places.
+ */
+const CONFIG_SEGMENT = '(?:([A-Za-z0-9_=-]+)\\/)?';
+
+function named(names, handler) {
+  return (req, res) => {
+    const params = {};
+    names.forEach((name, index) => {
+      const value = req.params[index];
+      params[name] = value === undefined ? undefined : safeDecode(value);
+    });
+    req.params = params;
+    return handler(req, res);
+  };
+}
+
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch (err) {
+    return value;
+  }
+}
+
+app.get(
+  new RegExp(`^\\/${CONFIG_SEGMENT}manifest\\.json$`),
+  named(['config'], manifestHandler)
+);
+
+app.get(
+  new RegExp(`^\\/${CONFIG_SEGMENT}catalog\\/([^\\/]+)\\/([^\\/]+?)(?:\\/(.+?))?\\.json$`),
+  named(['config', 'type', 'id', 'extra'], catalogHandler)
+);
+
+app.get(
+  new RegExp(`^\\/${CONFIG_SEGMENT}meta\\/([^\\/]+)\\/(.+?)\\.json$`),
+  named(['config', 'type', 'id'], metaHandler)
+);
+
+app.get(new RegExp(`^\\/${CONFIG_SEGMENT}configure\\/?$`), (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/', (req, res) => res.redirect('/configure'));
+
+/** Which scrapers the companion repositories offer for anime. */
+app.get('/plugins.json', async (req, res) => {
+  try {
+    const data = await plugins.status();
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/health', async (req, res) => {
+  res.json({
+    ok: true,
+    version: VERSION,
+    mapping: mapper.status(),
+    cache: cache.stats(),
+    uptime: Math.round(process.uptime()),
+  });
+});
+
+app.use((req, res) => res.status(404).json({ err: 'Not found' }));
+
+/* ------------------------------------------------------------------ *
+ * Start                                                               *
+ * ------------------------------------------------------------------ */
+
+if (require.main === module) {
+  // Warm the mapping so the first catalogue request is not the one that waits.
+  mapper.load().then(() => {
+    const status = mapper.status();
+    console.log(`[mapper] ${status.anilistIds} AniList IDs mapped`);
+  });
+
+  app.listen(PORT, () => {
+    console.log(`Nuvio Anime addon on http://127.0.0.1:${PORT}/manifest.json`);
+    console.log(`Configure at http://127.0.0.1:${PORT}/configure`);
+  });
+}
+
+module.exports = app;

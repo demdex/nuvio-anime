@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" role="img" aria-label="Nuvio Anime">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d1a2b"/>
+      <stop offset="0.55" stop-color="#17141f"/>
+      <stop offset="1" stop-color="#14121c"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6fe3d0" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#6fe3d0" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#sky)"/>
+
+  <!-- a broadcast timetable: hour ticks running the width of the frame -->
+  <g stroke="#3a3552" stroke-opacity="0.55" stroke-width="2">
+    <path d="M0 180h1280"/>
+    <path d="M0 300h1280"/>
+    <path d="M0 420h1280"/>
+    <path d="M0 540h1280"/>
+  </g>
+  <g stroke="#3a3552" stroke-opacity="0.35" stroke-width="2">
+    <path d="M160 120v480"/><path d="M400 120v480"/><path d="M640 120v480"/>
+    <path d="M880 120v480"/><path d="M1120 120v480"/>
+  </g>
+
+  <!-- programme blocks, weighted toward "now" -->
+  <rect x="120" y="156" width="360" height="48" rx="6" fill="url(#fade)"/>
+  <rect x="120" y="276" width="620" height="48" rx="6" fill="#6fe3d0" fill-opacity="0.12"/>
+  <rect x="120" y="396" width="240" height="48" rx="6" fill="#6fe3d0" fill-opacity="0.08"/>
+
+  <rect x="760" y="276" width="180" height="48" rx="6" fill="#ff5c7a" fill-opacity="0.25"/>
+  <circle cx="980" cy="300" r="10" fill="#ff5c7a"/>
+</svg>

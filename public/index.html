@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nuvio Anime — set up your catalogues</title>
+<meta name="description" content="Anime catalogues for Nuvio, built from the AniList broadcast schedule.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #14121c;
+    --surface: #1d1a2b;
+    --surface-2: #26223a;
+    --line: #3a3552;
+    --sand: #ece5d7;
+    --sand-dim: #a49db0;
+    --signal: #ff5c7a;
+    --tick: #6fe3d0;
+    --radius: 4px;
+    --display: "IBM Plex Sans Condensed", "Helvetica Neue", sans-serif;
+    --body: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--sand);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--tick); }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #191527 0%, var(--ink) 100%);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(6px);
+  }
+
+  .masthead .wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .wordmark {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  .wordmark span { color: var(--signal); }
+
+  .onair {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--sand-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--signal);
+    box-shadow: 0 0 0 0 rgba(255, 92, 122, 0.6);
+    animation: pulse 2.4s infinite;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(255, 92, 122, 0.55); }
+    70% { box-shadow: 0 0 0 9px rgba(255, 92, 122, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 92, 122, 0); }
+  }
+
+  /* ---------- hero ---------- */
+
+  .hero { padding: 56px 0 40px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--tick);
+    margin: 0 0 18px;
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.02;
+    letter-spacing: -0.01em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+
+  .lede {
+    max-width: 60ch;
+    color: var(--sand-dim);
+    margin: 0 0 32px;
+  }
+
+  .lede strong { color: var(--sand); font-weight: 500; }
+
+  /* ---------- install bar ---------- */
+
+  .install {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 18px;
+  }
+
+  .install label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sand-dim);
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .url-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  input[type="text"], input[type="password"], select {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--sand);
+    background: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 11px 12px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+    outline: 2px solid var(--tick);
+    outline-offset: 2px;
+  }
+
+  .url-row input { flex: 1 1 320px; }
+
+  button {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--tick);
+    border: 1px solid var(--tick);
+    border-radius: var(--radius);
+    padding: 11px 18px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.12s ease;
+  }
+
+  button:hover { transform: translateY(-1px); }
+
+  button.ghost {
+    background: transparent;
+    color: var(--sand);
+    border-color: var(--line);
+  }
+
+  button.ghost:hover { border-color: var(--sand-dim); }
+
+  .hint { font-size: 13px; color: var(--sand-dim); margin: 12px 0 0; }
+
+  /* ---------- section framing ---------- */
+
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+
+  h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--sand-dim);
+    margin: 0 0 6px;
+  }
+
+  .section-lede {
+    font-family: var(--display);
+    font-size: clamp(22px, 3.2vw, 30px);
+    font-weight: 600;
+    line-height: 1.2;
+    margin: 0 0 30px;
+    max-width: 30ch;
+  }
+
+  /* ---------- the timetable spine ---------- */
+
+  .band { margin-bottom: 34px; }
+
+  .band-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 6px;
+    margin-bottom: 14px;
+  }
+
+  .band-time {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--tick);
+    letter-spacing: 0.1em;
+    min-width: 78px;
+  }
+
+  .band-name {
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 12px;
+    color: var(--sand-dim);
+  }
+
+  .rows { display: grid; gap: 10px; padding-left: 78px; }
+
+  @media (max-width: 620px) {
+    .rows { padding-left: 0; }
+    .band-head { flex-direction: column; gap: 2px; }
+  }
+
+  .row {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--signal);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 12px 14px;
+  }
+
+  .row .title {
+    font-weight: 500;
+    margin: 0 0 2px;
+  }
+
+  .row .desc { color: var(--sand-dim); font-size: 14px; margin: 0; }
+
+  .row .flag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--tick);
+    border-radius: 2px;
+    padding: 2px 6px;
+    white-space: nowrap;
+    align-self: center;
+    margin-left: auto;
+  }
+
+  /* ---------- settings grid ---------- */
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 18px;
+  }
+
+  .field label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sand-dim);
+    margin-bottom: 7px;
+  }
+
+  .field .note { font-size: 12.5px; color: var(--sand-dim); margin: 7px 0 0; }
+
+  .check {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-top: 6px;
+  }
+
+  .check input { margin-top: 4px; accent-color: var(--tick); }
+
+  .check span { font-size: 14px; }
+
+  /* ---------- plugin repos ---------- */
+
+  .repo {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+
+  .repo h3 {
+    font-family: var(--display);
+    font-size: 17px;
+    margin: 0 0 4px;
+    letter-spacing: 0.02em;
+  }
+
+  .repo .meta { font-family: var(--mono); font-size: 12px; color: var(--sand-dim); margin: 0 0 12px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 10px;
+    color: var(--sand-dim);
+    background: var(--surface-2);
+  }
+
+  .chip.on { color: var(--tick); border-color: rgba(111, 227, 208, 0.4); }
+
+  ol.steps { padding-left: 20px; margin: 0 0 26px; max-width: 62ch; }
+  ol.steps li { margin-bottom: 9px; }
+  ol.steps code, p code, .repo code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 5px;
+    word-break: break-all;
+  }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 30px 0 50px;
+    color: var(--sand-dim);
+    font-size: 13px;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translate(-50%, 20px);
+    background: var(--tick);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 9px 16px;
+    border-radius: var(--radius);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <p class="wordmark">Nuvio <span>Anime</span></p>
+    <div class="onair"><span class="dot" aria-hidden="true"></span><span id="clock">--:--:-- UTC</span></div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <p class="eyebrow">Catalogue add-on · AniList schedule</p>
+    <h1>Anime rows that know what time it is.</h1>
+    <p class="lede">
+      Eleven catalogues built from the broadcast schedule rather than a popularity dump: what aired
+      in the last hour, what lands today, what you are behind on. Every entry carries an
+      <strong>IMDb or TMDB ID</strong>, which is what the anime scrapers in your plugin repositories
+      need to find a stream.
+    </p>
+
+    <div class="install">
+      <label for="url">Manifest URL</label>
+      <div class="url-row">
+        <input type="text" id="url" readonly spellcheck="false" aria-label="Manifest URL">
+        <button type="button" id="copy-url">Copy</button>
+        <button type="button" class="ghost" id="open-url">Open</button>
+      </div>
+      <p class="hint">
+        In Nuvio: <strong>Settings → Addons → Add Addon</strong>, paste, install. Keep metadata
+        addons above source addons in the list.
+      </p>
+    </div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <h2>What you get</h2>
+      <p class="section-lede">The rows are ordered by how recently something happened.</p>
+      <div id="timetable"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Your settings</h2>
+      <p class="section-lede">Add an AniList username to switch on the three personal rows.</p>
+
+      <div class="grid">
+        <div class="field">
+          <label for="anilistUser">AniList username</label>
+          <input type="text" id="anilistUser" placeholder="e.g. yourname" spellcheck="false">
+          <p class="note">Powers Continue Watching, New Episode Available and Recommended For You. Public profiles need nothing else.</p>
+        </div>
+
+        <div class="field">
+          <label for="anilistToken">AniList token — only for private lists</label>
+          <input type="password" id="anilistToken" placeholder="optional" spellcheck="false">
+          <p class="note">Leave empty unless your list visibility is set to private.</p>
+        </div>
+
+        <div class="field">
+          <label for="tmdbApiKey">TMDB API key — optional</label>
+          <input type="password" id="tmdbApiKey" placeholder="optional" spellcheck="false">
+          <p class="note">Adds episode titles and stills, and rescues shows too new for the offline mapping — up to eight lookups per row, cached for a day.</p>
+        </div>
+
+        <div class="field">
+          <label for="titleLanguage">Title language</label>
+          <select id="titleLanguage">
+            <option value="romaji">Romaji</option>
+            <option value="english">English</option>
+            <option value="native">Japanese</option>
+          </select>
+          <div class="check">
+            <input type="checkbox" id="hideUnmapped" checked>
+            <span>Hide titles with no IMDb or TMDB match. They browse fine but rarely play.</span>
+          </div>
+          <div class="check">
+            <input type="checkbox" id="includeAdult">
+            <span>Include adult titles</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Stream sources</h2>
+      <p class="section-lede">This addon lists anime. These repositories play it.</p>
+      <ol class="steps">
+        <li>Open Nuvio and go to <strong>Settings → Plugins</strong>.</li>
+        <li>Turn on <strong>Enable local scrapers</strong> — it is off by default.</li>
+        <li>Add each repository URL below with <strong>Add Repository</strong>.</li>
+        <li>Enable the anime scrapers listed on each card. Names change; the chips are read live from the repositories.</li>
+      </ol>
+      <div id="repos">
+        <p class="hint">Reading the repositories…</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      Catalogue and schedule data from AniList. ID mapping from Fribb/anime-lists. This addon
+      supplies listings only — playback comes from your own scrapers and addons.
+    </p>
+    <p><a href="/health">Service status</a> · <a href="/plugins.json">Repository report</a></p>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var CATALOGUES = [
+    { band: 'Last hour',  time: '≤ 1h',   name: '⏰ Released in the Last Hour', desc: 'Just aired. Opens to six hours when the last hour is quiet.' },
+    { band: 'Today',      time: '≤ 24h',  name: '📅 Airing Today', desc: "The whole UTC day, including episodes still to come, with air times." },
+    { band: 'Today',      time: '≤ 24h',  name: '📢 New Episode Available', desc: 'Shows on your list waiting with an episode you have not watched.', personal: true },
+    { band: 'This week',  time: '≤ 48h',  name: '📼 Latest Episodes', desc: 'An episode feed rather than a show feed, newest first.' },
+    { band: 'This week',  time: '≤ 7d',   name: '🆕 Recently Aired', desc: 'One row per show, newest episode first.' },
+    { band: 'This week',  time: 'live',   name: '🔥 Trending', desc: 'What AniList members are watching right now. Also handles search.' },
+    { band: 'This season', time: '3 mo',  name: '📆 Seasonal Anime', desc: 'This season by default; next and previous behind the filter.' },
+    { band: 'Any time',   time: '—',      name: '📺 Continue Watching', desc: 'Your AniList watching list, most recently updated first.', personal: true },
+    { band: 'Any time',   time: '—',      name: '❤️ Recommended For You', desc: 'What other members recommend alongside the titles you rated highest.', personal: true },
+    { band: 'Any time',   time: '—',      name: '⭐ Top Rated', desc: 'Highest community scores, with a popularity floor to keep out flukes.' },
+    { band: 'Any time',   time: '—',      name: '🎬 Anime Movies', desc: 'Feature films, most popular first, searchable.' }
+  ];
+
+  var DEFAULTS = {
+    anilistUser: '', anilistToken: '', tmdbApiKey: '',
+    titleLanguage: 'romaji', includeAdult: false, hideUnmapped: true
+  };
+
+  var el = function (id) { return document.getElementById(id); };
+
+  /* ---------- timetable ---------- */
+
+  function renderTimetable() {
+    var order = ['Last hour', 'Today', 'This week', 'This season', 'Any time'];
+    var host = el('timetable');
+    order.forEach(function (bandName) {
+      var items = CATALOGUES.filter(function (c) { return c.band === bandName; });
+      if (!items.length) return;
+
+      var band = document.createElement('div');
+      band.className = 'band';
+      band.innerHTML =
+        '<div class="band-head"><span class="band-time">' + items[0].time +
+        '</span><span class="band-name">' + bandName + '</span></div>';
+
+      var rows = document.createElement('div');
+      rows.className = 'rows';
+      items.forEach(function (item) {
+        var row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML =
+          '<div><p class="title">' + item.name + '</p><p class="desc">' + item.desc + '</p></div>' +
+          (item.personal ? '<span class="flag">needs profile</span>' : '');
+        rows.appendChild(row);
+      });
+      band.appendChild(rows);
+      host.appendChild(band);
+    });
+  }
+
+  /* ---------- install URL ---------- */
+
+  function b64url(str) {
+    return btoa(unescape(encodeURIComponent(str)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function fromB64url(str) {
+    var padded = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (padded.length % 4) padded += '=';
+    return decodeURIComponent(escape(atob(padded)));
+  }
+
+  function readForm() {
+    return {
+      anilistUser: el('anilistUser').value.trim(),
+      anilistToken: el('anilistToken').value.trim(),
+      tmdbApiKey: el('tmdbApiKey').value.trim(),
+      titleLanguage: el('titleLanguage').value,
+      includeAdult: el('includeAdult').checked,
+      hideUnmapped: el('hideUnmapped').checked
+    };
+  }
+
+  function buildUrl() {
+    var cfg = readForm();
+    var slim = {};
+    Object.keys(cfg).forEach(function (key) {
+      if (JSON.stringify(cfg[key]) !== JSON.stringify(DEFAULTS[key])) slim[key] = cfg[key];
+    });
+    var base = location.origin;
+    var segment = Object.keys(slim).length ? b64url(JSON.stringify(slim)) + '/' : '';
+    return base + '/' + segment + 'manifest.json';
+  }
+
+  function refresh() { el('url').value = buildUrl(); }
+
+  function prefill() {
+    var match = location.pathname.match(/^\/([A-Za-z0-9_=-]+)\/configure/);
+    if (!match) return;
+    try {
+      var cfg = JSON.parse(fromB64url(match[1]));
+      if (cfg.anilistUser) el('anilistUser').value = cfg.anilistUser;
+      if (cfg.anilistToken) el('anilistToken').value = cfg.anilistToken;
+      if (cfg.tmdbApiKey) el('tmdbApiKey').value = cfg.tmdbApiKey;
+      if (cfg.titleLanguage) el('titleLanguage').value = cfg.titleLanguage;
+      if (typeof cfg.includeAdult === 'boolean') el('includeAdult').checked = cfg.includeAdult;
+      if (typeof cfg.hideUnmapped === 'boolean') el('hideUnmapped').checked = cfg.hideUnmapped;
+    } catch (err) { /* an unreadable config just means defaults */ }
+  }
+
+  /* ---------- clipboard ---------- */
+
+  var toastTimer;
+  function toast(message) {
+    var node = el('toast');
+    node.textContent = message;
+    node.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { node.classList.remove('show'); }, 1800);
+  }
+
+  function copy(text, label) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast(label + ' copied'); },
+        function () { fallbackCopy(text, label); });
+    } else {
+      fallbackCopy(text, label);
+    }
+  }
+
+  function fallbackCopy(text, label) {
+    var box = document.createElement('textarea');
+    box.value = text;
+    box.setAttribute('readonly', '');
+    box.style.position = 'fixed';
+    box.style.opacity = '0';
+    document.body.appendChild(box);
+    box.select();
+    try { document.execCommand('copy'); toast(label + ' copied'); }
+    catch (err) { toast('Copy failed — select the text instead'); }
+    document.body.removeChild(box);
+  }
+
+  /* ---------- plugin repositories ---------- */
+
+  function renderRepos(data) {
+    var host = el('repos');
+    host.innerHTML = '';
+
+    data.repositories.forEach(function (repo) {
+      var card = document.createElement('div');
+      card.className = 'repo';
+
+      var head = document.createElement('h3');
+      head.textContent = repo.manifestName || repo.name;
+      card.appendChild(head);
+
+      var meta = document.createElement('p');
+      meta.className = 'meta';
+      meta.textContent = repo.reachable
+        ? repo.total + ' scrapers · ' + repo.anime.length + ' handle anime'
+        : 'Unreachable right now — ' + (repo.error || 'no response');
+      card.appendChild(meta);
+
+      var row = document.createElement('div');
+      row.className = 'url-row';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.readOnly = true;
+      input.value = repo.url;
+      input.setAttribute('aria-label', repo.name + ' repository URL');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Copy';
+      btn.addEventListener('click', function () { copy(repo.url, repo.name); });
+      row.appendChild(input);
+      row.appendChild(btn);
+      card.appendChild(row);
+
+      if (repo.anime.length) {
+        var chips = document.createElement('div');
+        chips.className = 'chips';
+        repo.anime.forEach(function (scraper) {
+          var chip = document.createElement('span');
+          chip.className = 'chip' + (scraper.enabledByDefault ? ' on' : '');
+          chip.textContent = scraper.name + (scraper.limited ? ' (limited)' : '');
+          chip.title = scraper.description || scraper.name;
+          chips.appendChild(chip);
+        });
+        card.appendChild(chips);
+      }
+      host.appendChild(card);
+    });
+  }
+
+  function loadRepos() {
+    fetch('/plugins.json')
+      .then(function (res) { return res.json(); })
+      .then(renderRepos)
+      .catch(function () {
+        el('repos').innerHTML =
+          '<p class="hint">Could not read the repositories. Add them in Nuvio directly:<br>' +
+          '<code>https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json</code><br>' +
+          '<code>https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json</code></p>';
+      });
+  }
+
+  /* ---------- clock ---------- */
+
+  function tick() {
+    var now = new Date();
+    el('clock').textContent = now.toISOString().slice(11, 19) + ' UTC';
+  }
+
+  /* ---------- wire up ---------- */
+
+  renderTimetable();
+  prefill();
+  refresh();
+  loadRepos();
+  tick();
+  setInterval(tick, 1000);
+
+  ['anilistUser', 'anilistToken', 'tmdbApiKey', 'titleLanguage', 'includeAdult', 'hideUnmapped']
+    .forEach(function (id) {
+      el(id).addEventListener('input', refresh);
+      el(id).addEventListener('change', refresh);
+    });
+
+  el('copy-url').addEventListener('click', function () { copy(el('url').value, 'Manifest URL'); });
+  el('open-url').addEventListener('click', function () { window.open(el('url').value, '_blank', 'noopener'); });
+})();
+</script>
+</body>
+</html>

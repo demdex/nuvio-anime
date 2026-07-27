@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Nuvio Anime">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26223a"/>
+      <stop offset="1" stop-color="#14121c"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="52" fill="url(#bg)"/>
+
+  <!-- schedule ticks: the rows are ordered by time, so is the mark -->
+  <g stroke="#3a3552" stroke-width="6" stroke-linecap="round">
+    <path d="M58 86h60"/>
+    <path d="M58 128h96"/>
+    <path d="M58 170h44"/>
+  </g>
+
+  <!-- on-air marker sitting on the newest row -->
+  <circle cx="186" cy="86" r="16" fill="#ff5c7a"/>
+  <circle cx="186" cy="86" r="27" fill="none" stroke="#ff5c7a" stroke-opacity="0.35" stroke-width="4"/>
+
+  <circle cx="176" cy="128" r="9" fill="#6fe3d0"/>
+  <circle cx="124" cy="170" r="9" fill="#6fe3d0" fill-opacity="0.45"/>
+</svg>
