@@ -15,6 +15,13 @@ const DEFAULTS = {
   anilistUser: '',
   // Optional AniList access token, only needed if the list is set to private.
   anilistToken: '',
+  // MyAnimeList username. Alternative to AniList for the three personal rows.
+  malUser: '',
+  // MAL API client ID from myanimelist.net/apiconfig. Optional but recommended:
+  // without one the list is read through Jikan, which is slower and stricter.
+  malClientId: '',
+  // Which tracker drives the personal rows: auto | anilist | mal
+  listSource: 'auto',
   // Optional TMDB v3 key. Used to fill gaps the offline mapping misses.
   tmdbApiKey: '',
   // romaji | english | native
@@ -49,6 +56,9 @@ function fromEnv() {
   return {
     anilistUser: process.env.ANILIST_USER || DEFAULTS.anilistUser,
     anilistToken: process.env.ANILIST_TOKEN || DEFAULTS.anilistToken,
+    malUser: process.env.MAL_USER || DEFAULTS.malUser,
+    malClientId: process.env.MAL_CLIENT_ID || DEFAULTS.malClientId,
+    listSource: process.env.LIST_SOURCE || DEFAULTS.listSource,
     tmdbApiKey: process.env.TMDB_API_KEY || DEFAULTS.tmdbApiKey,
     titleLanguage: process.env.TITLE_LANGUAGE || DEFAULTS.titleLanguage,
     includeAdult: process.env.INCLUDE_ADULT === 'true',
@@ -72,6 +82,9 @@ function normalise(cfg) {
   const out = { ...cfg };
   out.anilistUser = String(out.anilistUser || '').trim();
   out.anilistToken = String(out.anilistToken || '').trim();
+  out.malUser = String(out.malUser || '').trim();
+  out.malClientId = String(out.malClientId || '').trim();
+  if (!['auto', 'anilist', 'mal'].includes(out.listSource)) out.listSource = 'auto';
   out.tmdbApiKey = String(out.tmdbApiKey || '').trim();
   if (!['romaji', 'english', 'native'].includes(out.titleLanguage)) out.titleLanguage = 'romaji';
   out.includeAdult = out.includeAdult === true;
@@ -79,7 +92,13 @@ function normalise(cfg) {
   out.enabledCatalogs = Array.isArray(out.enabledCatalogs) ? out.enabledCatalogs : [];
   out.recentWindowHours = clamp(Number(out.recentWindowHours) || DEFAULTS.recentWindowHours, 1, 720);
   out.pageSize = clamp(Number(out.pageSize) || DEFAULTS.pageSize, 10, 50);
-  out.hasUser = Boolean(out.anilistUser || out.anilistToken);
+  // Either tracker counts, unless the config pins one and leaves it blank.
+  const anilistReady = Boolean(out.anilistUser || out.anilistToken);
+  const malReady = Boolean(out.malUser);
+  out.hasUser =
+    out.listSource === 'anilist' ? anilistReady :
+    out.listSource === 'mal' ? malReady :
+    anilistReady || malReady;
   return out;
 }
 

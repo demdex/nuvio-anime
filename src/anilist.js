@@ -152,6 +152,29 @@ async function mediaById({ id, malId }, ttl = 3600) {
   });
 }
 
+const BY_IDS_QUERY = `
+query ($ids: [Int]) {
+  Page(page: 1, perPage: 50) {
+    media(id_in: $ids, type: ANIME) { ${MEDIA_FIELDS} }
+  }
+}`;
+
+/** Batch fetch by AniList ID — used to dress up a tracker list with metadata. */
+async function mediaByIds(ids, ttl = 900) {
+  if (!ids.length) return [];
+  const key = `media-by-ids:${ids.slice().sort().join(',')}`;
+  return cache.wrap(key, ttl, async () => {
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+    const results = [];
+    for (const chunk of chunks) {
+      const data = await request(BY_IDS_QUERY, { ids: chunk });
+      results.push(...(data.Page.media || []));
+    }
+    return results;
+  });
+}
+
 /* ------------------------------------------------------------------ *
  * User lists — Continue Watching, New Episode Available, Recommended  *
  * ------------------------------------------------------------------ */
@@ -251,6 +274,7 @@ module.exports = {
   airingSchedule,
   media,
   mediaById,
+  mediaByIds,
   userList,
   recommendationsFor,
   currentSeason,

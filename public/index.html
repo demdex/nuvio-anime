@@ -438,7 +438,7 @@
   <section>
     <div class="wrap">
       <h2>Your settings</h2>
-      <p class="section-lede">Add an AniList username to switch on the three personal rows.</p>
+      <p class="section-lede">Add an AniList or MyAnimeList username to switch on the three personal rows.</p>
 
       <div class="grid">
         <div class="field">
@@ -451,6 +451,28 @@
           <label for="anilistToken">AniList token — only for private lists</label>
           <input type="password" id="anilistToken" placeholder="optional" spellcheck="false">
           <p class="note">Leave empty unless your list visibility is set to private.</p>
+        </div>
+
+        <div class="field">
+          <label for="malUser">MyAnimeList username</label>
+          <input type="text" id="malUser" placeholder="e.g. yourname" spellcheck="false">
+          <p class="note">Use this instead of AniList if MAL is where you track. Progress comes from MAL; artwork and air times still come from AniList.</p>
+        </div>
+
+        <div class="field">
+          <label for="malClientId">MAL client ID — recommended</label>
+          <input type="password" id="malClientId" placeholder="optional" spellcheck="false">
+          <p class="note">Free from myanimelist.net/apiconfig, takes a minute, no OAuth needed. Without it the list is read through Jikan, which is slower and rate-limited.</p>
+        </div>
+
+        <div class="field">
+          <label for="listSource">Track progress with</label>
+          <select id="listSource">
+            <option value="auto">Whichever I filled in</option>
+            <option value="anilist">AniList</option>
+            <option value="mal">MyAnimeList</option>
+          </select>
+          <p class="note">Only matters if you enter both.</p>
         </div>
 
         <div class="field">
@@ -527,7 +549,8 @@
   ];
 
   var DEFAULTS = {
-    anilistUser: '', anilistToken: '', tmdbApiKey: '',
+    anilistUser: '', anilistToken: '', malUser: '', malClientId: '',
+    listSource: 'auto', tmdbApiKey: '',
     titleLanguage: 'romaji', includeAdult: false, hideUnmapped: true
   };
 
@@ -555,7 +578,7 @@
         row.className = 'row';
         row.innerHTML =
           '<div><p class="title">' + item.name + '</p><p class="desc">' + item.desc + '</p></div>' +
-          (item.personal ? '<span class="flag">needs profile</span>' : '');
+          (item.personal ? '<span class="flag">needs a tracker</span>' : '');
         rows.appendChild(row);
       });
       band.appendChild(rows);
@@ -580,6 +603,9 @@
     return {
       anilistUser: el('anilistUser').value.trim(),
       anilistToken: el('anilistToken').value.trim(),
+      malUser: el('malUser').value.trim(),
+      malClientId: el('malClientId').value.trim(),
+      listSource: el('listSource').value,
       tmdbApiKey: el('tmdbApiKey').value.trim(),
       titleLanguage: el('titleLanguage').value,
       includeAdult: el('includeAdult').checked,
@@ -607,6 +633,9 @@
       var cfg = JSON.parse(fromB64url(match[1]));
       if (cfg.anilistUser) el('anilistUser').value = cfg.anilistUser;
       if (cfg.anilistToken) el('anilistToken').value = cfg.anilistToken;
+      if (cfg.malUser) el('malUser').value = cfg.malUser;
+      if (cfg.malClientId) el('malClientId').value = cfg.malClientId;
+      if (cfg.listSource) el('listSource').value = cfg.listSource;
       if (cfg.tmdbApiKey) el('tmdbApiKey').value = cfg.tmdbApiKey;
       if (cfg.titleLanguage) el('titleLanguage').value = cfg.titleLanguage;
       if (typeof cfg.includeAdult === 'boolean') el('includeAdult').checked = cfg.includeAdult;
@@ -727,7 +756,8 @@
   tick();
   setInterval(tick, 1000);
 
-  ['anilistUser', 'anilistToken', 'tmdbApiKey', 'titleLanguage', 'includeAdult', 'hideUnmapped']
+  ['anilistUser', 'anilistToken', 'malUser', 'malClientId', 'listSource', 'tmdbApiKey',
+   'titleLanguage', 'includeAdult', 'hideUnmapped']
     .forEach(function (id) {
       el(id).addEventListener('input', refresh);
       el(id).addEventListener('change', refresh);

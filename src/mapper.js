@@ -40,22 +40,38 @@ async function download() {
   return res.text();
 }
 
+/**
+ * Anything that is not a list of mapping rows must never reach the cache.
+ * A captive-portal login page, a rate-limit notice or a redirect body would
+ * otherwise be written to disk and reused for a day, silently emptying every
+ * catalogue that depends on ID mapping.
+ */
+function validate(text) {
+  const list = JSON.parse(text);
+  if (!Array.isArray(list)) throw new Error('anime-lists payload is not an array');
+  if (list.length < 1000) throw new Error(`anime-lists payload is suspiciously small (${list.length})`);
+  return list;
+}
+
 async function readSource() {
   try {
     const stat = fs.statSync(CACHE_FILE);
     if (Date.now() - stat.mtimeMs < CACHE_TTL_MS) {
-      return fs.readFileSync(CACHE_FILE, 'utf8');
+      return validate(fs.readFileSync(CACHE_FILE, 'utf8'));
     }
   } catch (err) {
-    /* no cache yet */
+    // A missing cache is normal; a corrupt one is worth saying out loud.
+    if (err.code !== 'ENOENT') console.error('[mapper] cached copy unusable:', err.message);
   }
+
   const text = await download();
+  const list = validate(text);
   try {
     fs.writeFileSync(CACHE_FILE, text);
   } catch (err) {
     /* read-only filesystem (Vercel etc.) — keep it in memory only */
   }
-  return text;
+  return list;
 }
 
 function firstOf(value) {
@@ -122,8 +138,7 @@ function load() {
   if (loading) return loading;
   loading = (async () => {
     try {
-      const text = await readSource();
-      build(JSON.parse(text));
+      build(await readSource());
     } catch (err) {
       console.error('[mapper] load failed:', err.message);
       if (!ready) build([]); // degrade to "no mapping" rather than crash

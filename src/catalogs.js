@@ -1,6 +1,7 @@
 'use strict';
 
 const anilist = require('./anilist');
+const lists = require('./lists');
 const meta = require('./meta');
 const mapper = require('./mapper');
 
@@ -188,12 +189,7 @@ async function topRated({ cfg, skip, genre }) {
 /** 📺 Continue Watching — the viewer's AniList "Watching" list. */
 async function continueWatching({ cfg, skip }) {
   if (!cfg.hasUser) return [];
-  const entries = await anilist.userList({
-    userName: cfg.anilistUser,
-    token: cfg.anilistToken,
-    statuses: ['CURRENT', 'REPEATING'],
-    ttl: 120,
-  });
+  const entries = await lists.watchlist(cfg, ['CURRENT', 'REPEATING'], 120);
 
   const previews = entries
     .filter((entry) => allowed(entry.media, cfg))
@@ -214,12 +210,7 @@ async function continueWatching({ cfg, skip }) {
  */
 async function newEpisode({ cfg, skip }) {
   if (!cfg.hasUser) return [];
-  const entries = await anilist.userList({
-    userName: cfg.anilistUser,
-    token: cfg.anilistToken,
-    statuses: ['CURRENT', 'REPEATING', 'PAUSED'],
-    ttl: 120,
-  });
+  const entries = await lists.watchlist(cfg, ['CURRENT', 'REPEATING', 'PAUSED'], 120);
 
   const previews = [];
   for (const entry of entries) {
@@ -306,18 +297,8 @@ function resolveSeason(choice) {
 async function recommended({ cfg, skip }) {
   if (cfg.hasUser) {
     const [finished, watching] = await Promise.all([
-      anilist.userList({
-        userName: cfg.anilistUser,
-        token: cfg.anilistToken,
-        statuses: ['COMPLETED'],
-        ttl: 1800,
-      }),
-      anilist.userList({
-        userName: cfg.anilistUser,
-        token: cfg.anilistToken,
-        statuses: ['CURRENT', 'REPEATING'],
-        ttl: 1800,
-      }),
+      lists.watchlist(cfg, ['COMPLETED'], 1800),
+      lists.watchlist(cfg, ['CURRENT', 'REPEATING'], 1800),
     ]);
 
     const owned = new Set([...finished, ...watching].map((e) => e.media.id));

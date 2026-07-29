@@ -33,7 +33,8 @@ const mappingRows = JSON.parse(fs.readFileSync(MAPPING_CACHE, 'utf8'));
 
 /** Three real entries: one plain series, one later season, one film. */
 const seriesRow = mappingRows.find(
-  (r) => r.anilist_id && r.imdb_id && r.themoviedb_id && r.themoviedb_id.tv && r.season && r.season.tmdb === 1
+  (r) => r.anilist_id && r.mal_id && r.imdb_id && r.themoviedb_id && r.themoviedb_id.tv &&
+    r.season && r.season.tmdb === 1
 );
 const sequelRow = mappingRows.find(
   (r) => r.anilist_id && r.themoviedb_id && r.themoviedb_id.tv && r.season && r.season.tmdb >= 2
@@ -43,6 +44,7 @@ const movieRow = mappingRows.find(
 );
 
 assert.ok(seriesRow && sequelRow && movieRow, 'fixture rows found in mapping');
+assert.ok(Array.isArray(mappingRows) && mappingRows.length > 1000, 'mapping cache looks intact');
 
 function makeMedia(row, overrides) {
   return Object.assign(
@@ -108,7 +110,7 @@ const REPO_MANIFEST = {
  * Network stub                                                        *
  * ------------------------------------------------------------------ */
 
-const calls = { anilist: 0, tmdb: 0, github: 0 };
+const calls = { anilist: 0, tmdb: 0, github: 0, mal: 0, jikan: 0 };
 
 function jsonResponse(body) {
   return {
@@ -158,6 +160,9 @@ global.fetch = async (url, options) => {
         },
       });
     }
+    if (query.includes('media(id_in: $ids')) {
+      return jsonResponse({ data: { Page: { media: [SERIES] } } });
+    }
     if (query.includes('Media(id: $id')) {
       return jsonResponse({
         data: {
@@ -186,6 +191,35 @@ global.fetch = async (url, options) => {
       return jsonResponse({ imdb_id: 'tt7654321' });
     }
     return jsonResponse({ episodes: [{ episode_number: 1, name: 'Pilot', still_path: '/x.jpg', air_date: '2026-07-05' }] });
+  }
+
+  if (href.includes('api.myanimelist.net')) {
+    calls.mal++;
+    return jsonResponse({
+      data: [
+        { node: { id: seriesRow.mal_id, title: 'Fixture' },
+          list_status: { status: 'watching', score: 9, num_episodes_watched: 3, updated_at: '2026-07-20T10:00:00+00:00' } },
+        { node: { id: 424242, title: 'Unmapped Fixture' },
+          list_status: { status: 'watching', score: 7, num_episodes_watched: 1, updated_at: '2026-07-19T10:00:00+00:00' } },
+      ],
+      paging: {},
+    });
+  }
+
+  if (href.includes('api.jikan.moe')) {
+    calls.jikan++;
+    return jsonResponse({
+      data: [
+        { entry: { mal_id: seriesRow.mal_id, title: 'Fixture' }, watching_status: 1, score: 8, episodes_watched: 5 },
+      ],
+      pagination: { has_next_page: false },
+    });
+  }
+
+  if (href.includes('anime-lists')) {
+    // The mapping must come from the on-disk cache, never from a stub —
+    // a wrong payload here would be written to that cache for a day.
+    throw new Error('mapping cache missing; download anime-list-full.json first');
   }
 
   if (href.includes('raw.githubusercontent.com')) {
@@ -328,6 +362,35 @@ async function main() {
   check('new-episode flags unwatched episodes', () =>
     assert.ok(behind.body.metas.some((m) => /is out|episodes behind/.test(m.name))));
 
+  console.log('\nmyanimelist');
+  const malCfg = configLib.encode({ malUser: 'chad', malClientId: 'fixture-client' });
+  const malWatching = await get(server, `/${malCfg}/catalog/series/continue-watching.json`);
+  check('MAL list drives continue-watching', () => assert.ok(malWatching.body.metas.length > 0));
+  check('MAL progress becomes the next episode', () =>
+    assert.ok(/Ep 4 of 12/.test(malWatching.body.metas[0].name)));
+  check('MAL path used the official API', () => assert.ok(calls.mal > 0));
+  check('MAL entries still get streamable IDs', () =>
+    assert.ok(malWatching.body.metas.every((m) => /^(tt\d+|tmdb:\d+)/.test(m.id))));
+
+  const jikanCfg = configLib.encode({ malUser: 'chad' });
+  const viaJikan = await get(server, `/${jikanCfg}/catalog/series/continue-watching.json`);
+  check('falls back to Jikan without a client ID', () => {
+    assert.ok(calls.jikan > 0);
+    assert.ok(viaJikan.body.metas.length > 0);
+  });
+
+  const pinnedMal = configLib.parse(configLib.encode({ listSource: 'mal', anilistUser: 'someone' }));
+  check('pinning MAL ignores an AniList username', () => assert.strictEqual(pinnedMal.hasUser, false));
+
+  const listsLib = require('../src/lists');
+  check('auto prefers AniList when both are set', () =>
+    assert.strictEqual(
+      listsLib.source(configLib.parse(configLib.encode({ anilistUser: 'a', malUser: 'b' }))),
+      'anilist'
+    ));
+  check('auto falls to MAL when only MAL is set', () =>
+    assert.strictEqual(listsLib.source(configLib.parse(configLib.encode({ malUser: 'b' }))), 'mal'));
+
   console.log('\ntmdb fallback');
   const withKey = configLib.encode({ tmdbApiKey: 'fixture-key', hideUnmapped: false });
   const rescued = await get(server, `/${withKey}/catalog/series/recently-aired.json`);
@@ -399,6 +462,12 @@ async function main() {
       const value = match.split("'")[1];
       assert.ok(AIRING_SORTS.includes(value), `${value} is not an AiringSort`);
     }
+  });
+
+  console.log('\nmapping cache');
+  check('rejects a payload that is not the mapping', () => {
+    const fresh = require('../src/mapper');
+    assert.ok(fresh.status().entries > 1000);
   });
 
   console.log('\nplugins');

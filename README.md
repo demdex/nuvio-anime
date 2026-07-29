@@ -22,7 +22,7 @@ Nuvio speaks the Stremio addon protocol, so this is a normal addon: a small Node
 | 📆 Seasonal Anime | This season, with next and previous behind the genre filter |
 | ❤️ Recommended For You | What other members recommend alongside the titles you rated highest |
 
-Three of them — Continue Watching, New Episode Available, Recommended For You — need an AniList username. A public AniList profile is enough; no password or token.
+Three of them — Continue Watching, New Episode Available, Recommended For You — need a tracker. **AniList or MyAnimeList** both work; a public profile on either is enough.
 
 ---
 
@@ -71,6 +71,23 @@ The addon reads both repositories live and reports what it finds at `/plugins.js
 
 ---
 
+## Trackers
+
+The personal rows read your list from one of two places.
+
+**AniList** needs only a username for a public profile. A token is required just for private lists.
+
+**MyAnimeList** needs a username, and preferably a client ID:
+
+1. Go to [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) → **Create ID**, fill in the form (any app name and a homepage URL will do).
+2. Copy the **Client ID** into configure. There is no OAuth step and no secret needed — MAL allows public list reads with the client ID alone.
+
+Without a client ID, MAL lists are read through [Jikan](https://docs.api.jikan.moe/), which needs no signup but scrapes MAL's own pages, is rate-limited to 60 requests a minute, and has changed response shape more than once. The parser tolerates the variants it is known to return, but the client ID is the path that stays working.
+
+Either way, only *progress* comes from the tracker. Artwork, synopses and airing schedules still come from AniList, so a MAL user and an AniList user see identical rows. MAL entries are matched to AniList through the same offline mapping used for stream IDs, with a capped number of individual lookups for anything unmapped.
+
+---
+
 ## Why the IDs matter
 
 Nuvio's local scrapers are handed a **TMDB or IMDb ID plus a season and episode number**. AniList numbers episodes absolutely and treats every sequel as a separate entry, so a naive AniList addon hands the scrapers "episode 13" of a 12-episode season and nothing plays.
@@ -97,6 +114,9 @@ Settings travel inside the manifest URL, so one server can serve many people wit
 |---|---|---|
 | AniList username | — | Enables the three personal rows |
 | AniList token | — | Only for private lists |
+| MyAnimeList username | — | Alternative to AniList for those rows |
+| MAL client ID | — | Recommended; without it MAL is read through Jikan |
+| Track progress with | auto | `auto` / `anilist` / `mal`, only matters if you fill in both |
 | TMDB API key | — | Episode titles, stills, and ID lookups for very new shows |
 | Title language | Romaji | Romaji / English / Japanese |
 | Hide unmapped titles | on | Hides entries with no IMDb or TMDB match |
@@ -142,7 +162,9 @@ curl -sL -o /tmp/nuvio-anime-list-full.json \
 
 **Rows are empty.** Check `/health` — if `mapping.entries` is 0 the addon could not reach GitHub. Also check whether `hideUnmapped` is filtering everything out; try `?hideUnmapped=false` via the configure page.
 
-**Personal rows are empty.** They need an AniList username, and the AniList profile must be public unless you supplied a token.
+**Personal rows are empty.** They need an AniList or MAL username, and the profile must be public unless you supplied an AniList token. If you pinned *Track progress with* to one tracker, only that one's username counts.
+
+**MAL rows are slow or intermittent.** That is Jikan, the no-signup fallback: it scrapes MAL and its rate limit is tight. Add a MAL client ID and the rows come from MAL's own API instead.
 
 **Catalogues load but nothing plays.** That is the scraper side, not this addon. Confirm **Enable local scrapers** is on, both repositories are added, and at least one anime scraper is enabled. Scrapers also come and go as sites move.
 
