@@ -2,6 +2,7 @@
 
 const anilist = require('./anilist');
 const jikan = require('./jikan');
+const kitsu = require('./kitsu');
 const source = require('./source');
 const lists = require('./lists');
 const meta = require('./meta');
@@ -50,13 +51,19 @@ async function schedule({ from, to, sort, pages = 2, ttl }) {
     async () => {
       const media = await jikan.airingToday();
       return media.map((m) => ({ episode: null, airingAt: null, media: m }));
+    },
+    // Kitsu has no schedule at all, so this is currently-airing shows by
+    // popularity. Least precise of the three, and still better than nothing.
+    async () => {
+      const media = await kitsu.airing({ limit: 20 });
+      return media.map((m) => ({ episode: null, airingAt: null, media: m }));
     }
   );
 }
 
-/** Browse queries, with the closest MAL equivalent behind each one. */
-function browse(vars, ttl, standby) {
-  return source.withFallback(() => anilist.media(vars, ttl), standby);
+/** Browse queries, with the closest equivalent from each standby behind them. */
+function browse(vars, ttl, standby, tertiary) {
+  return source.withFallback(() => anilist.media(vars, ttl), standby, tertiary);
 }
 
 /**
@@ -202,7 +209,11 @@ async function trending({ cfg, skip, genre, search }) {
     () =>
       search
         ? jikan.search({ query: search, page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
-        : jikan.top({ filter: 'airing', page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
+        : jikan.top({ filter: 'airing', page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize }),
+    () =>
+      search
+        ? kitsu.search({ query: search, page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
+        : kitsu.airing({ page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   return list.filter((m) => allowed(m, cfg)).map((m) => meta.toPreview(m, cfg));
 }
@@ -220,7 +231,8 @@ async function topRated({ cfg, skip, genre }) {
       isAdult: cfg.includeAdult ? undefined : false,
     },
     6 * HOUR,
-    () => jikan.top({ page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
+    () => jikan.top({ page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize }),
+    () => kitsu.top({ page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   return list
     .filter((m) => allowed(m, cfg) && (m.popularity || 0) > 5000)
@@ -292,7 +304,8 @@ async function movies({ cfg, skip, genre, search }) {
     () =>
       search
         ? jikan.search({ query: search, type: 'movie', page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
-        : jikan.top({ type: 'movie', page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
+        : jikan.top({ type: 'movie', page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize }),
+    () => kitsu.movies({ page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   return list.filter((m) => allowed(m, cfg)).map((m) => meta.toPreview(m, cfg));
 }
@@ -314,7 +327,8 @@ async function seasonal({ cfg, skip, genre }) {
       isAdult: cfg.includeAdult ? undefined : false,
     },
     2 * HOUR,
-    () => jikan.season({ year: seasonYear, seasonName: season, page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
+    () => jikan.season({ year: seasonYear, seasonName: season, page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize }),
+    () => kitsu.season({ year: seasonYear, seasonName: season, page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   const label = `${season[0]}${season.slice(1).toLowerCase()} ${seasonYear}`;
   return list.filter((m) => allowed(m, cfg)).map((m) => meta.toPreview(m, cfg, { badge: label }));
@@ -374,7 +388,8 @@ async function recommended({ cfg, skip }) {
       isAdult: cfg.includeAdult ? undefined : false,
     },
     3 * HOUR,
-    () => jikan.recommendations()
+    () => jikan.recommendations(),
+    () => kitsu.top({ page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   return list.filter((m) => allowed(m, cfg)).map((m) => meta.toPreview(m, cfg, { badge: 'Well reviewed' }));
 }

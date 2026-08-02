@@ -2,22 +2,31 @@
 
 const anilist = require('./anilist');
 const jikan = require('./jikan');
+const kitsu = require('./kitsu');
 
 /**
  * Which service answers a catalogue request.
  *
- * AniList is primary: it has per-episode air timestamps, which is what the
- * schedule rows are built on. Jikan is the standby, because AniList disables
- * its API site-wide during load problems and takes every dependent app down
- * with it.
+ * Three sources, tried in order:
  *
- * When AniList fails in a way that will not fix itself on the next request —
- * a 403 outage or an IP block — this switches to Jikan and stops retrying for
- * a cooldown. Retrying a site-wide outage on every request just adds latency
- * to a call that is going to fail anyway.
+ *  1. **AniList** — the only one with per-episode air timestamps, which is
+ *     what the schedule rows are built on. Primary for that reason alone.
+ *  2. **MyAnimeList**, via Jikan — good catalogue data, weekly broadcast
+ *     slots only.
+ *  3. **Kitsu** — its own database on its own infrastructure.
+ *
+ * The third source is not paranoia. When AniList disabled its API site-wide,
+ * every app depending on it fell back to Jikan simultaneously and Jikan began
+ * returning 504s under the load. Two sources that fail together are one
+ * source. Kitsu shares no infrastructure with either.
+ *
+ * A source that fails persistently is skipped for a cooldown rather than
+ * retried on every request, since retrying a site-wide outage only adds
+ * latency to a call that is going to fail anyway.
  */
 
 const COOLDOWN_MS = 10 * 60 * 1000;
+const RETRY_DELAYS_MS = [400, 1200];
 
 const state = {
   degraded: false,
@@ -25,6 +34,8 @@ const state = {
   until: 0,
   reason: null,
   kind: null,
+  // Per-source cooldowns for the standbys.
+  down: new Map(), // name -> { until, reason }
 };
 
 function isDown() {
@@ -55,40 +66,119 @@ function markDown(err) {
 function isPersistent(err) {
   if (err.status === 403) return true;
   if (err.status >= 500) return true;
-  return /rate limit|ECONN|ETIMEDOUT|fetch failed|network/i.test(err.message || '');
+  // Not every layer attaches a status, so the message is checked too —
+  // without this a repeatedly-504ing source is retried on every request.
+  return /rate limit|HTTP 5\d\d|ECONN|ETIMEDOUT|fetch failed|network|unreachable/i.test(
+    err.message || ''
+  );
 }
 
 /**
- * Try AniList, fall back to Jikan.
+ * Errors worth one more immediate attempt.
  *
- * `primary` and `standby` must return the same shape. If both fail, the
- * AniList error is what surfaces, since that is the one worth reporting.
+ * A 504 from an overloaded free API is usually a queue that cleared by the
+ * time you ask again; a 403 never is. Retrying the first and not the second
+ * is the difference between resilience and wasting the request budget.
  */
-async function withFallback(primary, standby) {
-  if (!isDown()) {
+function isTransient(err) {
+  const message = err.message || '';
+  if (err.status === 429) return false;
+  return /HTTP 50[234]|timeout|ETIMEDOUT|ECONNRESET|fetch failed/i.test(message);
+}
+
+async function attempt(name, fn) {
+  let lastError = null;
+  for (let tryIndex = 0; tryIndex <= RETRY_DELAYS_MS.length; tryIndex++) {
     try {
-      const result = await primary();
-      if (result && (!Array.isArray(result) || result.length)) return result;
-      // An empty result is not an error; do not fail over for a quiet hour.
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const delay = RETRY_DELAYS_MS[tryIndex];
+      if (delay === undefined || !isTransient(err)) break;
+      console.warn(`[source] ${name} transient failure, retrying in ${delay}ms — ${err.message}`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
+function sourceIsDown(name) {
+  const entry = state.down.get(name);
+  if (!entry) return false;
+  if (Date.now() > entry.until) {
+    state.down.delete(name);
+    return false;
+  }
+  return true;
+}
+
+function markSourceDown(name, err) {
+  state.down.set(name, { until: Date.now() + COOLDOWN_MS, reason: err.message });
+}
+
+/**
+ * Try each source in turn.
+ *
+ * All three must return the same shape. If every one fails, the first error
+ * surfaces, since AniList's is the one that explains the situation. Sources
+ * with no handler for a given row are simply skipped.
+ */
+async function withFallback(primary, standby, tertiary) {
+  const chain = [
+    { name: 'anilist', fn: primary },
+    { name: 'myanimelist', fn: standby },
+    { name: 'kitsu', fn: tertiary },
+  ].filter((step) => typeof step.fn === 'function');
+
+  let firstError = null;
+
+  for (const step of chain) {
+    if (step.name === 'anilist' ? isDown() : sourceIsDown(step.name)) continue;
+
+    try {
+      const result = await attempt(step.name, step.fn);
+      if (step.name !== 'anilist') {
+        console.warn(`[source] served from ${step.name}`);
+      }
       return result;
     } catch (err) {
-      if (isPersistent(err)) markDown(err);
-      else console.warn(`[source] AniList call failed, trying MyAnimeList — ${err.message}`);
-      try {
-        return await standby();
-      } catch (fallbackErr) {
-        console.error(`[source] MyAnimeList also failed — ${fallbackErr.message}`);
-        throw err;
+      if (!firstError) firstError = err;
+      if (step.name === 'anilist') {
+        if (isPersistent(err)) markDown(err);
+        console.warn(`[source] AniList failed — ${err.message}`);
+      } else {
+        if (isPersistent(err)) markSourceDown(step.name, err);
+        console.warn(`[source] ${step.name} failed — ${err.message}`);
       }
     }
   }
-  return standby();
+
+  // Every source is down. Throwing lets the cache serve stale data if it has
+  // any, which is the last line of defence before an empty row.
+  throw firstError || new Error('no catalogue source available');
+}
+
+/** The source that would answer right now. */
+function activeSource() {
+  if (!isDown()) return 'anilist';
+  if (!sourceIsDown('myanimelist')) return 'myanimelist';
+  if (!sourceIsDown('kitsu')) return 'kitsu';
+  return 'none';
 }
 
 function status() {
+  const standbys = {};
+  for (const name of ['myanimelist', 'kitsu']) {
+    const entry = state.down.get(name);
+    standbys[name] = entry && Date.now() < entry.until
+      ? { available: false, reason: entry.reason, retryAfter: new Date(entry.until).toISOString() }
+      : { available: true };
+  }
+
   return {
     primary: 'anilist',
-    active: isDown() ? 'myanimelist' : 'anilist',
+    active: activeSource(),
+    standbys,
     degraded: state.degraded,
     since: state.since,
     reason: state.reason,
@@ -104,6 +194,20 @@ function reset() {
   state.until = 0;
   state.reason = null;
   state.kind = null;
+  state.down.clear();
 }
 
-module.exports = { withFallback, isDown, markDown, status, reset, anilist, jikan };
+module.exports = {
+  withFallback,
+  isDown,
+  markDown,
+  markSourceDown,
+  sourceIsDown,
+  activeSource,
+  status,
+  reset,
+  isTransient,
+  anilist,
+  jikan,
+  kitsu,
+};

@@ -51,8 +51,14 @@ async function call(pathname, params) {
     const res = await fetch(url, {
       headers: { accept: 'application/json', 'user-agent': 'nuvio-anime-addon' },
     });
-    if (res.status === 429) throw new Error('Jikan rate limit reached');
-    if (!res.ok) throw new Error(`Jikan HTTP ${res.status}`);
+    if (!res.ok) {
+      const err = new Error(
+        res.status === 429 ? 'Jikan rate limit reached' : `Jikan HTTP ${res.status}`
+      );
+      // Carried so the router can tell a transient 504 from a hard refusal.
+      err.status = res.status;
+      throw err;
+    }
     const body = await res.json();
     return body;
   });
