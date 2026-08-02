@@ -187,6 +187,8 @@ curl -sL -o /tmp/nuvio-anime-list-full.json \
 
 **Wrong season plays.** The mapping puts each AniList entry on a TMDB season; a brand-new sequel may not be mapped yet. It usually fixes itself within a week or two, since the source rebuilds daily.
 
+**`/diagnose` says AniList returned 403.** There are two kinds and it will tell you which. *API temporarily disabled* is a site-wide AniList outage affecting every app that uses them — it resolves on their side, and the addon keeps serving cached rows for up to 24 hours meanwhile. *IP blocked* means this server's address was blocked, which needs a host with its own IP.
+
 **AniList refuses requests on a shared host.** AniList rate-limits per IP, and serverless platforms put many projects behind the same addresses. If `/diagnose` reports the AniList check failing with a 403, that is what happened. Longer cache TTLs help; a different host or a small paid instance with its own IP helps more.
 
 **AniList rate limits.** Responses are cached (2–5 minutes for schedule rows, hours for static ones) and identical concurrent requests are de-duplicated. If you still hit limits, you are probably running many clients against one instance.
