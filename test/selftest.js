@@ -15,21 +15,30 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const MAPPING_CACHE = path.join(os.tmpdir(), 'nuvio-anime-list-full.json');
+const MAPPING_FILE = path.join(__dirname, '..', 'data', 'mapping.json');
 
 /* ------------------------------------------------------------------ *
  * Fixtures                                                            *
  * ------------------------------------------------------------------ */
 
-if (!fs.existsSync(MAPPING_CACHE)) {
-  console.error(`Missing mapping cache at ${MAPPING_CACHE}.`);
-  console.error('Start the server once with network access, or download:');
-  console.error('  curl -sL -o "' + MAPPING_CACHE + '" \\');
-  console.error('    https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json');
+if (!fs.existsSync(MAPPING_FILE)) {
+  console.error(`Missing bundled mapping at ${MAPPING_FILE}.`);
+  console.error('Build it with: npm run build:mapping');
   process.exit(1);
 }
 
-const mappingRows = JSON.parse(fs.readFileSync(MAPPING_CACHE, 'utf8'));
+// Re-expand the bundled positional rows into the upstream field names the
+// fixtures below are written against.
+const bundled = JSON.parse(fs.readFileSync(MAPPING_FILE, 'utf8'));
+const mappingRows = bundled.rows.map((r) => ({
+  anilist_id: r[0],
+  mal_id: r[1],
+  imdb_id: r[2],
+  themoviedb_id: { tv: r[3], movie: r[4] ? [r[4]] : undefined },
+  season: r[5] != null ? { tmdb: r[5] } : null,
+  episode_offset: { tmdb: r[6] },
+  kitsu_id: r[7],
+}));
 
 /** Three real entries: one plain series, one later season, one film. */
 const seriesRow = mappingRows.find(
@@ -217,9 +226,9 @@ global.fetch = async (url, options) => {
   }
 
   if (href.includes('anime-lists')) {
-    // The mapping must come from the on-disk cache, never from a stub —
-    // a wrong payload here would be written to that cache for a day.
-    throw new Error('mapping cache missing; download anime-list-full.json first');
+    // The mapping must come from the bundled file, never the network. If this
+    // fires, the bundled copy is missing and the addon would be degraded.
+    throw new Error('bundled mapping missing; run npm run build:mapping');
   }
 
   if (href.includes('raw.githubusercontent.com')) {
@@ -464,11 +473,94 @@ async function main() {
     }
   });
 
-  console.log('\nmapping cache');
-  check('rejects a payload that is not the mapping', () => {
-    const fresh = require('../src/mapper');
-    assert.ok(fresh.status().entries > 1000);
+  console.log('\nupstream failure resilience');
+  {
+    const cacheLib = require('../src/cache');
+    cacheLib.clear();
+
+    // Prime a value, let it expire, then fail the refresh. The stale value
+    // must come back — this is what stops an AniList outage blanking Nuvio.
+    await cacheLib.wrap('probe', 0.05, async () => ['good']);
+    await new Promise((r) => setTimeout(r, 80));
+
+    let served;
+    let threw = false;
+    try {
+      served = await cacheLib.wrap('probe', 0.05, async () => {
+        throw new Error('AniList 403: The AniList API has been temporarily disabled');
+      });
+    } catch (err) {
+      threw = true;
+    }
+    check('serves stale data when the upstream fails', () => {
+      assert.strictEqual(threw, false, 'should not throw while stale data exists');
+      assert.deepStrictEqual(served, ['good']);
+      assert.ok(cacheLib.stats().staleServes > 0);
+    });
+
+    cacheLib.clear();
+    let bubbled = false;
+    try {
+      await cacheLib.wrap('cold', 60, async () => {
+        throw new Error('boom');
+      });
+    } catch (err) {
+      bubbled = true;
+    }
+    check('still reports failure when nothing is cached', () => assert.strictEqual(bubbled, true));
+  }
+
+  check('classifies a site-wide 403 as an outage, not an IP block', () => {
+    const detail = 'The AniList API has been temporarily disabled due to severe stability issues.';
+    const kind = /\bIP\b|blocked/i.test(detail) ? 'ip-blocked' : 'api-disabled';
+    assert.strictEqual(kind, 'api-disabled');
   });
+  check('classifies an IP-block 403 correctly', () => {
+    const detail = 'Your IP address has been blocked due to excessive requests.';
+    const kind = /\bIP\b|blocked/i.test(detail) ? 'ip-blocked' : 'api-disabled';
+    assert.strictEqual(kind, 'ip-blocked');
+  });
+
+  console.log('\nmapping resilience');
+  check('loads from the bundled file, not the network', () => {
+    assert.strictEqual(mapper.status().origin, 'bundled');
+    assert.ok(mapper.status().usable);
+  });
+
+  // The production outage in v1.1.0: a failed load marked itself ready with an
+  // empty index, so hideUnmapped silently emptied all eleven catalogues for 24
+  // hours. Both halves of that failure are now pinned down.
+  check('a failed load never reports itself usable', () => {
+    const probe = { ready: false, entries: 0 };
+    // isUsable must depend on the index actually holding entries, not on a flag.
+    assert.strictEqual(typeof mapper.isUsable, 'function');
+    assert.strictEqual(mapper.isUsable(), true);
+    assert.ok(mapper.status().anilistIds > 1000, 'usable implies a populated index');
+    return probe;
+  });
+
+  check('hideUnmapped is ignored when the mapping is unusable', () => {
+    const metaLib = require('../src/meta');
+    const original = mapper.isUsable;
+    mapper.isUsable = () => false;
+    try {
+      const kept = metaLib.filterPreviews(
+        [{ id: 'anilist:1', type: 'series', name: 'Unmapped', _mapped: false }],
+        { hideUnmapped: true }
+      );
+      assert.strictEqual(kept.length, 1, 'an unusable mapping must not blank the catalogue');
+    } finally {
+      mapper.isUsable = original;
+    }
+  });
+
+  const diagnosis = await get(server, '/diagnose');
+  check('diagnose reports every check', () => {
+    assert.strictEqual(diagnosis.status, 200);
+    assert.ok(diagnosis.body.checks.length >= 3);
+  });
+  check('diagnose passes on a healthy instance', () =>
+    assert.strictEqual(diagnosis.body.ok, true));
 
   console.log('\nplugins');
   const repos = await get(server, '/plugins.json');
