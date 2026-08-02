@@ -110,6 +110,8 @@ The personal rows read your list from one of two places.
 
 Without a client ID, MAL lists are read through [Jikan](https://docs.api.jikan.moe/), which needs no signup but scrapes MAL's own pages, is rate-limited to 60 requests a minute, and has changed response shape more than once. The parser tolerates the variants it is known to return, but the client ID is the path that stays working.
 
+Your list is hydrated with artwork and titles from whichever catalogue source is up, so a MyAnimeList list keeps working even while AniList is unavailable. (It did not always: an earlier version fetched list metadata from AniList unconditionally, which meant a MAL list went blank during an AniList outage — the one situation MAL tracking exists to survive.)
+
 Either way, only *progress* comes from the tracker. Artwork, synopses and airing schedules still come from AniList, so a MAL user and an AniList user see identical rows. MAL entries are matched to AniList through the same offline mapping used for stream IDs, with a capped number of individual lookups for anything unmapped.
 
 ---
