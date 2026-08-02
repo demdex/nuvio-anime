@@ -261,7 +261,21 @@ app.get('/diagnose', async (req, res) => {
       detail: anilistOk ? `returned ${list.length} titles` : 'responded but returned nothing',
     });
   } catch (err) {
-    checks.push({ name: 'AniList API', ok: false, detail: err.message });
+    // The two kinds of 403 need opposite responses from the operator, so say
+    // which one this is rather than leaving them to guess.
+    const advice =
+      err.kind === 'api-disabled'
+        ? 'AniList has disabled its API site-wide. This affects every app using it and resolves on their side — nothing to fix here. Cached rows keep serving in the meantime.'
+        : err.kind === 'ip-blocked'
+          ? "AniList has blocked this server's IP address. Shared hosts pool IPs across many projects, so this may not be caused by your own traffic. A host with a dedicated IP is the fix."
+          : null;
+    checks.push({
+      name: 'AniList API',
+      ok: false,
+      detail: err.message,
+      kind: err.kind || 'error',
+      advice: advice || undefined,
+    });
   }
 
   const cfg = config.parse(null);
