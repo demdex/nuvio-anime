@@ -169,13 +169,26 @@ function buildDescription(media, { badge, episode, airingAt } = {}) {
   return parts.join('\n\n');
 }
 
-/** Drop rows the viewer asked not to see. */
+/**
+ * Drop rows the viewer asked not to see.
+ *
+ * `hideUnmapped` is only honoured while the ID mapping is actually usable.
+ * If the mapping failed to load, every title looks unmapped, and applying the
+ * filter would blank all eleven catalogues — a total outage caused by a
+ * setting meant to tidy up the edges. Showing titles that may not play is far
+ * better than showing nothing at all.
+ */
 function filterPreviews(previews, cfg) {
+  const canFilter = cfg.hideUnmapped && mapper.isUsable();
+  if (cfg.hideUnmapped && !canFilter) {
+    console.warn('[meta] mapping unusable — showing unmapped titles rather than an empty catalogue');
+  }
+
   const seen = new Set();
   const out = [];
   for (const item of previews) {
     if (!item) continue;
-    if (cfg.hideUnmapped && !item._mapped) continue;
+    if (canFilter && !item._mapped) continue;
     if (seen.has(item.id)) continue;
     seen.add(item.id);
     const clean = { ...item };
