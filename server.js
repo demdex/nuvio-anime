@@ -238,8 +238,21 @@ app.get('/plugins.json', async (req, res) => {
  * This endpoint pays that cost back: it runs the real calls and reports what
  * actually happened.
  */
-app.get('/diagnose', async (req, res) => {
+async function diagnoseHandler(req, res) {
+  const cfg = config.parse(req.params ? req.params.config : null);
+  const configured = Boolean(req.params && req.params.config);
   const checks = [];
+
+  // Settings live inside the URL, so the first thing worth confirming is
+  // whether this request even carried any. A bare /diagnose reports on the
+  // bare install and says nothing about a configured one.
+  checks.push({
+    name: 'Settings',
+    ok: true,
+    detail: configured
+      ? describeConfig(cfg)
+      : 'none in this URL — add your config segment: /<segment>/diagnose',
+  });
 
   await mapper.load();
   const mapping = mapper.status();
@@ -322,14 +335,47 @@ app.get('/diagnose', async (req, res) => {
     checks.push({ name: 'Kitsu fallback', ok: false, detail: err.message });
   }
 
-  const cfg = config.parse(null);
-  checks.push({
-    name: 'Watch list',
-    ok: true,
-    detail: cfg.hasUser
-      ? `configured via ${lists.source(cfg)}`
-      : 'no username set — the three personal rows will be empty (this is normal for the bare URL)',
-  });
+  // Actually fetch the list rather than merely confirming a username exists.
+  // "A username is set" and "the list loads" are different facts, and only
+  // the second one explains an empty row.
+  if (!cfg.hasUser) {
+    checks.push({
+      name: 'Watch list',
+      ok: true,
+      detail: configured
+        ? 'no username set — Continue Watching, New Episode Available and Recommended For You will be empty'
+        : 'not checked (no settings in this URL)',
+    });
+  } else {
+    const tracker = lists.source(cfg);
+    try {
+      const entries = await lists.watchlist(cfg, ['CURRENT', 'REPEATING'], 0);
+      const withMedia = entries.filter((e) => e && e.media).length;
+      checks.push({
+        name: 'Watch list',
+        ok: withMedia > 0,
+        detail:
+          withMedia > 0
+            ? `${withMedia} in-progress title(s) from ${tracker}`
+            : `${tracker} returned no in-progress titles`,
+        advice:
+          withMedia > 0
+            ? undefined
+            : tracker === 'mal'
+              ? 'Check the username spelling, that the list has titles set to "Watching", and that the list is public (Profile → Settings → List visibility).'
+              : 'Check the username spelling and that titles are set to "Watching". Private AniList lists need a token.',
+      });
+    } catch (err) {
+      checks.push({
+        name: 'Watch list',
+        ok: false,
+        detail: `${tracker}: ${err.message}`,
+        advice: /504|502|rate limit/i.test(err.message)
+          ? 'This is the Jikan outage. A MAL client ID routes the read through MAL\'s own API instead.'
+          : undefined,
+      });
+    }
+  }
 
   const failed = checks.filter((c) => !c.ok);
   const active = source.activeSource();
@@ -350,7 +396,24 @@ app.get('/diagnose', async (req, res) => {
     servingFrom: active,
     checks,
   });
-});
+}
+
+/** Describe settings without ever echoing a credential back. */
+function describeConfig(cfg) {
+  const parts = [];
+  if (cfg.anilistUser) parts.push(`AniList user "${cfg.anilistUser}"`);
+  if (cfg.anilistToken) parts.push('AniList token set');
+  if (cfg.malUser) parts.push(`MAL user "${cfg.malUser}"`);
+  parts.push(cfg.malClientId ? 'MAL client ID set' : 'no MAL client ID');
+  if (cfg.tmdbApiKey) parts.push('TMDB key set');
+  parts.push(`list source: ${cfg.listSource}`);
+  if (!cfg.anilistUser && !cfg.anilistToken && !cfg.malUser) {
+    parts.push('NO USERNAME — a client ID alone cannot identify whose list to read');
+  }
+  return parts.join(' · ');
+}
+
+app.get(new RegExp(`^\\/${CONFIG_SEGMENT}diagnose$`), named(['config'], diagnoseHandler));
 
 app.get('/health', async (req, res) => {
   res.json({

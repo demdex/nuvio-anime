@@ -163,6 +163,7 @@ Environment variables in `.env` set the defaults for the bare `/manifest.json` U
 | `/plugins.json` | Live report on both scraper repositories |
 | `/health` | Mapping size, cache stats, uptime |
 | `/diagnose` | Runs the real calls and reports what is actually failing |
+| `/<config>/diagnose` | The same, for a configured install — also fetches your watch list |
 
 ---
 
@@ -205,7 +206,11 @@ curl -sL -o /tmp/nuvio-anime-list-full.json \
 
 **Rows are empty.** Check `/health` — if `mapping.entries` is 0 the addon could not reach GitHub. Also check whether `hideUnmapped` is filtering everything out; try `?hideUnmapped=false` via the configure page.
 
-**Personal rows are empty.** They need an AniList or MAL username, and the profile must be public unless you supplied an AniList token. If you pinned *Track progress with* to one tracker, only that one's username counts.
+**Personal rows are empty.** Open `/<your-config-segment>/diagnose` — the bare `/diagnose` reports on the bare install and will always say no username is set. The configured one names the settings it received and actually fetches your list.
+
+A MAL **client ID alone will not work**: it identifies your application, not you, so it cannot tell MAL whose list to read. The username is the required field; the client ID is optional and only changes which API the read goes through.
+
+ They need an AniList or MAL username, and the profile must be public unless you supplied an AniList token. If you pinned *Track progress with* to one tracker, only that one's username counts.
 
 **MAL rows are slow or intermittent.** That is Jikan, the no-signup fallback: it scrapes MAL and its rate limit is tight. Add a MAL client ID and the rows come from MAL's own API instead.
 

@@ -1,6 +1,6 @@
 {
   "name": "nuvio-anime-addon",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Anime catalogues for Nuvio (Stremio addon protocol) \u2014 airing schedule, trending, seasonal and your AniList or MyAnimeList watch list, mapped to TMDB/IMDb so Nuvio's local scrapers can resolve streams.",
   "main": "server.js",
   "type": "commonjs",
