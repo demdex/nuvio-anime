@@ -7,6 +7,8 @@ const config = require('./src/config');
 const catalogs = require('./src/catalogs');
 const anilist = require('./src/anilist');
 const lists = require('./src/lists');
+const jikan = require('./src/jikan');
+const source = require('./src/source');
 const metaBuilder = require('./src/meta');
 const mapper = require('./src/mapper');
 const plugins = require('./src/plugins');
@@ -278,6 +280,28 @@ app.get('/diagnose', async (req, res) => {
     });
   }
 
+  // The standby only matters when the primary is failing, but knowing whether
+  // it is reachable *before* that happens is the point of checking it.
+  try {
+    const alive = await jikan.ping();
+    checks.push({
+      name: 'MyAnimeList fallback',
+      ok: alive,
+      detail: alive
+        ? anilistOk
+          ? 'reachable and on standby'
+          : 'reachable — serving catalogues while AniList is unavailable'
+        : 'responded but returned nothing',
+    });
+  } catch (err) {
+    checks.push({
+      name: 'MyAnimeList fallback',
+      ok: false,
+      detail: err.message,
+      advice: anilistOk ? undefined : 'Both sources are unavailable; catalogues will serve cached rows only.',
+    });
+  }
+
   const cfg = config.parse(null);
   checks.push({
     name: 'Watch list',
@@ -292,6 +316,7 @@ app.get('/diagnose', async (req, res) => {
   res.json({
     ok: failed.length === 0,
     summary: failed.length === 0 ? 'Everything checks out.' : `${failed.length} check(s) failing.`,
+    servingFrom: source.status().active,
     checks,
   });
 });
@@ -301,6 +326,7 @@ app.get('/health', async (req, res) => {
     ok: true,
     version: VERSION,
     mapping: mapper.status(),
+    source: source.status(),
     cache: cache.stats(),
     uptime: Math.round(process.uptime()),
   });

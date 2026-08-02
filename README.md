@@ -71,6 +71,26 @@ The addon reads both repositories live and reports what it finds at `/plugins.js
 
 ---
 
+## Two sources
+
+Catalogue data comes from **AniList** by default and falls back to **MyAnimeList** (via Jikan) automatically.
+
+This exists because AniList disables its API site-wide during load problems, returning 403 to everyone. Without a standby, that takes every row down at once. When a 403, a 5xx or a network failure appears, the addon switches to MyAnimeList, stops retrying AniList for ten minutes, and switches back on its own once AniList answers again. `/diagnose` reports which source is live under `servingFrom`.
+
+What you lose while on the standby, stated plainly:
+
+| Row | On MyAnimeList |
+|---|---|
+| Airing Today | Today's broadcast line-up, but no air times — MAL publishes a weekly slot, not per-episode timestamps |
+| Recently Aired, Latest Episodes, Last Hour | Degrade to the same line-up; episode numbers and "2h ago" are unavailable |
+| Trending | Currently-airing by popularity; MAL has no true trending signal |
+| Top Rated, Movies, Seasonal, Recommended | Near-equivalent, MAL's own rankings |
+| Continue Watching, New Episode Available | Unaffected if you track on MAL; unavailable if you track on AniList |
+
+Badges say less rather than guessing — no invented episode numbers, no fabricated times. IDs resolve through the same bundled mapping either way, so a title keeps the same IMDb or TMDB ID whichever source produced it and Nuvio's continuity holds.
+
+---
+
 ## Trackers
 
 The personal rows read your list from one of two places.
