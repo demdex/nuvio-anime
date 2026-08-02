@@ -119,7 +119,7 @@ const REPO_MANIFEST = {
  * Network stub                                                        *
  * ------------------------------------------------------------------ */
 
-const calls = { anilist: 0, tmdb: 0, github: 0, mal: 0, jikan: 0 };
+const calls = { anilist: 0, tmdb: 0, github: 0, mal: 0, jikan: 0, jikanCatalog: 0 };
 
 function jsonResponse(body) {
   return {
@@ -136,6 +136,18 @@ global.fetch = async (url, options) => {
 
   if (href.includes('graphql.anilist.co')) {
     calls.anilist++;
+    if (global.__ANILIST_DOWN__) {
+      return {
+        ok: false,
+        status: 403,
+        headers: { get: () => null },
+        json: async () => ({
+          errors: [{ message: 'The AniList API has been temporarily disabled due to severe stability issues.', status: 403 }],
+          data: null,
+        }),
+        text: async () => '{}',
+      };
+    }
     const query = JSON.parse(options.body).query;
 
     if (query.includes('airingSchedules')) {
@@ -213,6 +225,38 @@ global.fetch = async (url, options) => {
       ],
       paging: {},
     });
+  }
+
+  if (href.includes('api.jikan.moe') && !href.includes('/animelist')) {
+    calls.jikanCatalog++;
+    const jikanAnime = (malId, title, type) => ({
+      mal_id: malId,
+      url: 'https://myanimelist.net/anime/' + malId,
+      images: { jpg: { image_url: 'i.jpg', large_image_url: 'l.jpg' } },
+      title,
+      title_english: title + ' EN',
+      title_japanese: 'JP',
+      type: type || 'TV',
+      episodes: 12,
+      status: 'Currently Airing',
+      score: 8.2,
+      members: 90000,
+      synopsis: 'Standby synopsis.',
+      genres: [{ name: 'Action' }],
+      studios: [{ name: 'Standby Studio' }],
+      aired: { from: '2026-07-05T00:00:00+00:00' },
+      season: 'summer',
+      year: 2026,
+      rating: 'PG-13',
+    });
+    const rows = [jikanAnime(seriesRow.mal_id, 'Standby Show'), jikanAnime(777777, 'Unmapped Standby')];
+    if (href.includes('/watch/episodes')) {
+      return jsonResponse({ data: rows.map((r) => ({ entry: r, episodes: [{ mal_id: 7 }] })) });
+    }
+    if (href.includes('/recommendations/anime')) {
+      return jsonResponse({ data: [{ entry: rows }] });
+    }
+    return jsonResponse({ data: rows, pagination: { has_next_page: false } });
   }
 
   if (href.includes('api.jikan.moe')) {
@@ -472,6 +516,64 @@ async function main() {
       assert.ok(AIRING_SORTS.includes(value), `${value} is not an AiringSort`);
     }
   });
+
+  console.log('\nMyAnimeList failover');
+  {
+    const sourceLib = require('../src/source');
+    const cacheLib = require('../src/cache');
+    cacheLib.clear();
+    sourceLib.reset();
+
+    global.__ANILIST_DOWN__ = true;
+    const before = calls.jikanCatalog;
+
+    const trendingDown = await get(server, '/catalog/series/trending.json');
+    check('trending still returns rows when AniList is 403', () =>
+      assert.ok(trendingDown.body.metas.length > 0, 'expected MAL-sourced rows'));
+    check('the standby was actually used', () => assert.ok(calls.jikanCatalog > before));
+    check('MAL-sourced rows still carry streamable IDs', () =>
+      assert.ok(trendingDown.body.metas.some((m) => /^(tt\d+|tmdb:\d+)/.test(m.id))));
+
+    const seasonalDown = await get(server, '/catalog/series/seasonal.json');
+    check('seasonal falls back too', () => assert.ok(seasonalDown.body.metas.length > 0));
+
+    const moviesDown = await get(server, '/catalog/movie/movies.json');
+    check('movies fall back too', () => assert.ok(moviesDown.body.metas.length > 0));
+
+    const scheduleDown = await get(server, '/catalog/series/airing-today.json');
+    check('schedule rows survive without air timestamps', () =>
+      assert.ok(scheduleDown.body.metas.length > 0));
+    check('no fabricated air time in the badge', () => {
+      // timeAgo(null) used to render "NaNd ago"; nothing like it may appear.
+      const bad = scheduleDown.body.metas.filter((m) => /NaN|Invalid|undefined/.test(m.name));
+      assert.strictEqual(bad.length, 0, `bad badges: ${bad.map((m) => m.name).join(', ')}`);
+    });
+
+    check('source reports itself degraded', () => {
+      const st = sourceLib.status();
+      assert.strictEqual(st.active, 'myanimelist');
+      assert.strictEqual(st.kind, 'api-disabled');
+    });
+
+    const diagDown = await get(server, '/diagnose');
+    check('diagnose names the active source', () =>
+      assert.strictEqual(diagDown.body.servingFrom, 'myanimelist'));
+    check('diagnose explains the AniList outage', () => {
+      const anilistCheck = diagDown.body.checks.find((c) => c.name === 'AniList API');
+      assert.strictEqual(anilistCheck.kind, 'api-disabled');
+      assert.ok(/nothing to fix here/i.test(anilistCheck.advice || ''));
+    });
+
+    global.__ANILIST_DOWN__ = false;
+    sourceLib.reset();
+    cacheLib.clear();
+
+    const recovered = await get(server, '/catalog/series/trending.json');
+    check('recovers to AniList once it returns', () => {
+      assert.ok(recovered.body.metas.length > 0);
+      assert.strictEqual(sourceLib.status().active, 'anilist');
+    });
+  }
 
   console.log('\nupstream failure resilience');
   {
