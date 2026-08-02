@@ -58,7 +58,30 @@ async function request(query, variables, { token } = {}) {
     }
 
     const body = await res.json().catch(() => null);
-    if (!res.ok || !body) throw new Error(`AniList HTTP ${res.status}`);
+
+    // AniList explains itself in the response body, and the two kinds of 403
+    // mean opposite things: a site-wide "API temporarily disabled" resolves
+    // itself, while an IP block needs a different host. Throwing away the
+    // message makes those indistinguishable, so it is carried through.
+    if (!res.ok) {
+      const detail =
+        body && Array.isArray(body.errors) && body.errors.length
+          ? body.errors.map((e) => e.message).join('; ')
+          : null;
+      const error = new Error(detail ? `AniList ${res.status}: ${detail}` : `AniList HTTP ${res.status}`);
+      error.status = res.status;
+      error.anilistMessage = detail;
+      // A 403 naming the IP is a block; a 403 naming the API is an outage.
+      error.kind =
+        res.status !== 403
+          ? 'http'
+          : detail && /\bIP\b|blocked/i.test(detail)
+            ? 'ip-blocked'
+            : 'api-disabled';
+      throw error;
+    }
+
+    if (!body) throw new Error(`AniList returned an unreadable response (${res.status})`);
     if (body.errors && body.errors.length) {
       throw new Error(`AniList: ${body.errors.map((e) => e.message).join('; ')}`);
     }
