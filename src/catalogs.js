@@ -1,6 +1,8 @@
 'use strict';
 
 const anilist = require('./anilist');
+const jikan = require('./jikan');
+const source = require('./source');
 const lists = require('./lists');
 const meta = require('./meta');
 const mapper = require('./mapper');
@@ -32,13 +34,45 @@ function pageFor(skip, pageSize) {
  * before de-duplication trims it back.
  */
 async function schedule({ from, to, sort, pages = 2, ttl }) {
-  const results = [];
-  for (let page = 1; page <= pages; page++) {
-    const batch = await anilist.airingSchedule({ from, to, page, perPage: 50, sort, ttl });
-    results.push(...batch);
-    if (batch.length < 50) break;
-  }
-  return results;
+  return source.withFallback(
+    async () => {
+      const results = [];
+      for (let page = 1; page <= pages; page++) {
+        const batch = await anilist.airingSchedule({ from, to, page, perPage: 50, sort, ttl });
+        results.push(...batch);
+        if (batch.length < 50) break;
+      }
+      return results;
+    },
+    // MAL knows the weekly broadcast slot but not per-episode timestamps, so
+    // the standby returns today's line-up with airingAt left null. Callers
+    // must check for that rather than print a bogus time.
+    async () => {
+      const media = await jikan.airingToday();
+      return media.map((m) => ({ episode: null, airingAt: null, media: m }));
+    }
+  );
+}
+
+/** Browse queries, with the closest MAL equivalent behind each one. */
+function browse(vars, ttl, standby) {
+  return source.withFallback(() => anilist.media(vars, ttl), standby);
+}
+
+/**
+ * Badge for a schedule row.
+ *
+ * The MAL standby knows which shows broadcast today but not which episode or
+ * at what time. Rather than print a wrong episode number or a fabricated
+ * timestamp, the badge quietly says less.
+ */
+function scheduleBadge(episode, airingAt, { upcoming = false } = {}) {
+  const parts = [];
+  if (episode) parts.push(`Ep ${episode}`);
+  if (airingAt) parts.push(upcoming ? meta.formatClock(airingAt) : meta.timeAgo(airingAt));
+  else if (upcoming) parts.push('today');
+  if (!parts.length) return 'airing today';
+  return parts.join(' · ');
 }
 
 function allowed(media, cfg) {
@@ -64,8 +98,8 @@ async function recentlyAired({ cfg, skip }) {
     seen.add(entry.media.id);
     previews.push(
       meta.toPreview(entry.media, cfg, {
-        badge: `Ep ${entry.episode} · ${meta.timeAgo(entry.airingAt)}`,
-        episode: entry.episode,
+        badge: scheduleBadge(entry.episode, entry.airingAt),
+        episode: entry.episode || undefined,
         airingAt: entry.airingAt,
       })
     );
@@ -83,8 +117,8 @@ async function latestEpisodes({ cfg, skip }) {
     .filter((entry) => allowed(entry.media, cfg))
     .map((entry) =>
       meta.toPreview(entry.media, cfg, {
-        badge: `Ep ${entry.episode} · ${meta.timeAgo(entry.airingAt)}`,
-        episode: entry.episode,
+        badge: scheduleBadge(entry.episode, entry.airingAt),
+        episode: entry.episode || undefined,
         airingAt: entry.airingAt,
       })
     );
@@ -108,13 +142,13 @@ async function airingToday({ cfg, skip }) {
   for (const entry of entries) {
     if (!allowed(entry.media, cfg) || seen.has(entry.media.id)) continue;
     seen.add(entry.media.id);
-    const future = entry.airingAt > now();
+    const future = entry.airingAt ? entry.airingAt > now() : false;
     previews.push(
       meta.toPreview(entry.media, cfg, {
-        badge: future
-          ? `Ep ${entry.episode} · ${meta.formatClock(entry.airingAt)}`
-          : `Ep ${entry.episode} · out now`,
-        episode: future ? undefined : entry.episode,
+        badge: entry.airingAt && !future
+          ? scheduleBadge(entry.episode, null) + ' · out now'
+          : scheduleBadge(entry.episode, entry.airingAt, { upcoming: true }),
+        episode: future ? undefined : entry.episode || undefined,
         airingAt: entry.airingAt,
       })
     );
@@ -141,8 +175,8 @@ async function lastHour({ cfg, skip }) {
     seen.add(entry.media.id);
     previews.push(
       meta.toPreview(entry.media, cfg, {
-        badge: `Ep ${entry.episode} · ${meta.timeAgo(entry.airingAt)}`,
-        episode: entry.episode,
+        badge: scheduleBadge(entry.episode, entry.airingAt),
+        episode: entry.episode || undefined,
         airingAt: entry.airingAt,
       })
     );
@@ -152,7 +186,7 @@ async function lastHour({ cfg, skip }) {
 
 /** 🔥 Trending — also serves the search box. */
 async function trending({ cfg, skip, genre, search }) {
-  const list = await anilist.media(
+  const list = await browse(
     {
       page: pageFor(skip, cfg.pageSize),
       perPage: cfg.pageSize,
@@ -162,14 +196,20 @@ async function trending({ cfg, skip, genre, search }) {
       search: search || undefined,
       isAdult: cfg.includeAdult ? undefined : false,
     },
-    search ? 3600 : 600
+    search ? 3600 : 600,
+    // MAL's nearest equivalent to "trending" is what is currently airing and
+    // popular; there is no true trending signal.
+    () =>
+      search
+        ? jikan.search({ query: search, page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
+        : jikan.top({ filter: 'airing', page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   return list.filter((m) => allowed(m, cfg)).map((m) => meta.toPreview(m, cfg));
 }
 
 /** ⭐ Top Rated — community score, with a popularity floor to keep out flukes. */
 async function topRated({ cfg, skip, genre }) {
-  const list = await anilist.media(
+  const list = await browse(
     {
       page: pageFor(skip, cfg.pageSize),
       perPage: cfg.pageSize,
@@ -179,7 +219,8 @@ async function topRated({ cfg, skip, genre }) {
       minScore: 70,
       isAdult: cfg.includeAdult ? undefined : false,
     },
-    6 * HOUR
+    6 * HOUR,
+    () => jikan.top({ page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   return list
     .filter((m) => allowed(m, cfg) && (m.popularity || 0) > 5000)
@@ -237,7 +278,7 @@ async function newEpisode({ cfg, skip }) {
 
 /** 🎬 Anime Movies. */
 async function movies({ cfg, skip, genre, search }) {
-  const list = await anilist.media(
+  const list = await browse(
     {
       page: pageFor(skip, cfg.pageSize),
       perPage: cfg.pageSize,
@@ -247,7 +288,11 @@ async function movies({ cfg, skip, genre, search }) {
       search: search || undefined,
       isAdult: cfg.includeAdult ? undefined : false,
     },
-    6 * HOUR
+    6 * HOUR,
+    () =>
+      search
+        ? jikan.search({ query: search, type: 'movie', page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
+        : jikan.top({ type: 'movie', page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   return list.filter((m) => allowed(m, cfg)).map((m) => meta.toPreview(m, cfg));
 }
@@ -257,7 +302,7 @@ async function seasonal({ cfg, skip, genre }) {
   const { season, seasonYear } = resolveSeason(genre);
   const isGenre = GENRES.includes(genre);
 
-  const list = await anilist.media(
+  const list = await browse(
     {
       page: pageFor(skip, cfg.pageSize),
       perPage: cfg.pageSize,
@@ -268,7 +313,8 @@ async function seasonal({ cfg, skip, genre }) {
       genre: isGenre ? genre : undefined,
       isAdult: cfg.includeAdult ? undefined : false,
     },
-    2 * HOUR
+    2 * HOUR,
+    () => jikan.season({ year: seasonYear, seasonName: season, page: pageFor(skip, cfg.pageSize), limit: cfg.pageSize })
   );
   const label = `${season[0]}${season.slice(1).toLowerCase()} ${seasonYear}`;
   return list.filter((m) => allowed(m, cfg)).map((m) => meta.toPreview(m, cfg, { badge: label }));
@@ -316,7 +362,7 @@ async function recommended({ cfg, skip }) {
     }
   }
 
-  const list = await anilist.media(
+  const list = await browse(
     {
       page: pageFor(skip, cfg.pageSize),
       perPage: cfg.pageSize,
@@ -327,7 +373,8 @@ async function recommended({ cfg, skip }) {
       minScore: 65,
       isAdult: cfg.includeAdult ? undefined : false,
     },
-    3 * HOUR
+    3 * HOUR,
+    () => jikan.recommendations()
   );
   return list.filter((m) => allowed(m, cfg)).map((m) => meta.toPreview(m, cfg, { badge: 'Well reviewed' }));
 }

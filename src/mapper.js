@@ -260,9 +260,13 @@ function byTmdb(id, type) {
  *
  * IMDb first: it has the widest scraper support. TMDB next. AniList last — it
  * still browses fine, it just has fewer stream sources.
+ *
+ * Media may arrive from AniList (an `id`) or from Jikan (only an `idMal`), so
+ * both are tried. A catalogue item must land on the same external ID whichever
+ * source produced it, or switching sources would break Nuvio's continuity.
  */
 function externalId(media) {
-  const entry = byAniList(media.id);
+  const entry = byAniList(media.id) || (media.idMal ? byMal(media.idMal) : null);
   const isMovie = media.format === 'MOVIE';
 
   if (entry) {
@@ -270,7 +274,10 @@ function externalId(media) {
     const tmdbId = isMovie ? entry.tmdbMovieId : entry.tmdbTvId;
     if (tmdbId) return { id: `tmdb:${tmdbId}`, kind: 'tmdb', entry, mapped: true };
   }
-  return { id: `anilist:${media.id}`, kind: 'anilist', entry, mapped: false };
+
+  if (media.id) return { id: `anilist:${media.id}`, kind: 'anilist', entry, mapped: false };
+  if (media.idMal) return { id: `mal:${media.idMal}`, kind: 'mal', entry, mapped: false };
+  return { id: null, kind: 'none', entry, mapped: false };
 }
 
 /** Convert an absolute AniList episode number into a season/episode pair. */

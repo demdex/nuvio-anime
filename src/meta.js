@@ -154,7 +154,7 @@ function applyResolvedId(preview, id) {
 
 function buildDescription(media, { badge, episode, airingAt } = {}) {
   const parts = [];
-  if (badge && episode) {
+  if (episode) {
     parts.push(
       airingAt ? `Episode ${episode} aired ${timeAgo(airingAt)}.` : `Episode ${episode} is out.`
     );
