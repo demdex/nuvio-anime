@@ -42,7 +42,7 @@ const mappingRows = bundled.rows.map((r) => ({
 
 /** Three real entries: one plain series, one later season, one film. */
 const seriesRow = mappingRows.find(
-  (r) => r.anilist_id && r.mal_id && r.imdb_id && r.themoviedb_id && r.themoviedb_id.tv &&
+  (r) => r.anilist_id && r.mal_id && r.kitsu_id && r.imdb_id && r.themoviedb_id && r.themoviedb_id.tv &&
     r.season && r.season.tmdb === 1
 );
 const sequelRow = mappingRows.find(
@@ -119,7 +119,7 @@ const REPO_MANIFEST = {
  * Network stub                                                        *
  * ------------------------------------------------------------------ */
 
-const calls = { anilist: 0, tmdb: 0, github: 0, mal: 0, jikan: 0, jikanCatalog: 0 };
+const calls = { anilist: 0, tmdb: 0, github: 0, mal: 0, jikan: 0, jikanCatalog: 0, kitsu: 0 };
 
 function jsonResponse(body) {
   return {
@@ -229,6 +229,9 @@ global.fetch = async (url, options) => {
 
   if (href.includes('api.jikan.moe') && !href.includes('/animelist')) {
     calls.jikanCatalog++;
+    if (global.__JIKAN_DOWN__) {
+      return { ok: false, status: 504, headers: { get: () => null }, json: async () => ({}), text: async () => '' };
+    }
     const jikanAnime = (malId, title, type) => ({
       mal_id: malId,
       url: 'https://myanimelist.net/anime/' + malId,
@@ -273,6 +276,38 @@ global.fetch = async (url, options) => {
     // The mapping must come from the bundled file, never the network. If this
     // fires, the bundled copy is missing and the addon would be degraded.
     throw new Error('bundled mapping missing; run npm run build:mapping');
+  }
+
+  if (href.includes('kitsu.app') || href.includes('kitsu.io')) {
+    calls.kitsu++;
+    if (global.__KITSU_DOWN__) throw new Error('fetch failed');
+    const rec = (id, kitsuId, title, subtype) => ({
+      id: String(kitsuId),
+      attributes: {
+        canonicalTitle: title,
+        titles: { en_jp: title, en: title + ' EN', ja_jp: 'JP' },
+        synopsis: 'Kitsu synopsis.',
+        posterImage: { original: 'p.jpg', large: 'pl.jpg' },
+        coverImage: { original: 'c.jpg' },
+        subtype: subtype || 'TV',
+        status: 'current',
+        episodeCount: 12,
+        averageRating: '81.5',
+        userCount: 40000,
+        startDate: '2026-07-05',
+        ageRating: 'PG',
+        slug: 'kitsu-show',
+      },
+    });
+    if (href.includes('filter%5Bid%5D') || href.includes('filter[id]')) {
+      // Echo back the ids that were asked for, so hydration can match them.
+      const raw = decodeURIComponent(href).split('filter[id]=')[1] || '';
+      const ids = raw.split('&')[0].split(',').filter(Boolean);
+      return jsonResponse({ data: ids.map((id, i) => rec(i, Number(id), 'Kitsu Hydrated')) });
+    }
+    return jsonResponse({
+      data: [rec(1, seriesRow.kitsu_id || 1, 'Kitsu Show'), rec(2, 888888, 'Unmapped Kitsu')],
+    });
   }
 
   if (href.includes('raw.githubusercontent.com')) {
@@ -574,6 +609,122 @@ async function main() {
       assert.strictEqual(sourceLib.status().active, 'anilist');
     });
   }
+
+  console.log('\nMAL list survives an AniList outage');
+  {
+    const sourceLib = require('../src/source');
+    const cacheLib = require('../src/cache');
+    cacheLib.clear();
+    sourceLib.reset();
+
+    // The exact production situation: MAL list is fine, AniList is 403. The
+    // list must still render — hydrating it from AniList was the bug.
+    global.__ANILIST_DOWN__ = true;
+    const cfgMal = configLib.encode({ malUser: 'chad', malClientId: 'fixture-client' });
+
+    const watching = await get(server, `/${cfgMal}/catalog/series/continue-watching.json`);
+    check('continue-watching renders from MAL while AniList is 403', () =>
+      assert.ok(watching.body.metas.length > 0, 'MAL list must not depend on AniList'));
+    check('hydrated rows carry a title and poster', () => {
+      const row = watching.body.metas[0];
+      assert.ok(row.name && row.name.length > 1, 'row has a name');
+      assert.ok(row.poster, 'row has a poster');
+    });
+    check('hydrated rows keep the watch progress badge', () =>
+      assert.ok(/Ep \d+/.test(watching.body.metas[0].name), watching.body.metas[0].name));
+
+    global.__ANILIST_DOWN__ = false;
+    sourceLib.reset();
+    cacheLib.clear();
+  }
+
+  console.log('\nconfigured diagnose');
+  {
+    const cfgMal = configLib.encode({ malUser: 'chad', malClientId: 'fixture-client' });
+    const d = await get(server, `/${cfgMal}/diagnose`);
+    check('diagnose accepts a config segment', () => assert.strictEqual(d.status, 200));
+
+    const settings = d.body.checks.find((c) => c.name === 'Settings');
+    check('reports the settings it received', () => {
+      assert.ok(/MAL user "chad"/.test(settings.detail));
+      assert.ok(/MAL client ID set/.test(settings.detail));
+    });
+    check('never echoes the credential itself', () =>
+      assert.ok(!/fixture-client/.test(JSON.stringify(d.body))));
+
+    const watch = d.body.checks.find((c) => c.name === 'Watch list');
+    check('actually fetches the list rather than assuming', () => {
+      assert.strictEqual(watch.ok, true);
+      assert.ok(/from mal/.test(watch.detail), watch.detail);
+    });
+
+    // The exact mistake: a client ID with no username.
+    const idOnly = configLib.encode({ malClientId: 'fixture-client' });
+    const dIdOnly = await get(server, `/${idOnly}/diagnose`);
+    const idOnlySettings = dIdOnly.body.checks.find((c) => c.name === 'Settings');
+    check('calls out a client ID with no username', () =>
+      assert.ok(/NO USERNAME/.test(idOnlySettings.detail), idOnlySettings.detail));
+
+    const bare = await get(server, '/diagnose');
+    const bareSettings = bare.body.checks.find((c) => c.name === 'Settings');
+    check('bare diagnose says it carries no settings', () =>
+      assert.ok(/none in this URL/.test(bareSettings.detail)));
+  }
+
+  console.log('\nboth primaries down (the real outage)');
+  {
+    const sourceLib = require('../src/source');
+    const cacheLib = require('../src/cache');
+    cacheLib.clear();
+    sourceLib.reset();
+
+    // AniList 403 site-wide, and Jikan 504 because every other app just
+    // failed over onto it. This is the situation that took the addon down.
+    global.__ANILIST_DOWN__ = true;
+    global.__JIKAN_DOWN__ = true;
+    const kitsuBefore = calls.kitsu;
+
+    const trending = await get(server, '/catalog/series/trending.json');
+    check('catalogues still serve when AniList and Jikan are both down', () =>
+      assert.ok(trending.body.metas.length > 0, 'expected Kitsu-sourced rows'));
+    check('Kitsu was actually reached', () => assert.ok(calls.kitsu > kitsuBefore));
+    check('Kitsu rows resolve to streamable IDs via the bundled mapping', () =>
+      assert.ok(trending.body.metas.some((m) => /^(tt\d+|tmdb:\d+)/.test(m.id))));
+
+    check('active source is reported as kitsu', () =>
+      assert.strictEqual(sourceLib.activeSource(), 'kitsu'));
+
+    const diag = await get(server, '/diagnose');
+    check('diagnose stays ok while a source remains', () => {
+      assert.strictEqual(diag.body.ok, true);
+      assert.strictEqual(diag.body.allChecksPassed, false);
+      assert.strictEqual(diag.body.servingFrom, 'kitsu');
+    });
+    check('diagnose summary is not needlessly alarming', () =>
+      assert.ok(/serving from kitsu/i.test(diag.body.summary)));
+
+    // Now lose Kitsu too: everything is gone.
+    global.__KITSU_DOWN__ = true;
+    sourceLib.reset();
+    cacheLib.clear();
+    const dead = await get(server, '/diagnose');
+    check('diagnose reports a true outage when nothing is left', () => {
+      assert.strictEqual(dead.body.ok, false);
+      assert.ok(/no catalogue source/i.test(dead.body.summary));
+    });
+
+    global.__ANILIST_DOWN__ = false;
+    global.__JIKAN_DOWN__ = false;
+    global.__KITSU_DOWN__ = false;
+    sourceLib.reset();
+    cacheLib.clear();
+  }
+
+  check('504 is treated as retryable, 403 is not', () => {
+    const sourceLib = require('../src/source');
+    assert.strictEqual(sourceLib.isTransient(new Error('Jikan HTTP 504')), true);
+    assert.strictEqual(sourceLib.isTransient(new Error('AniList 403: disabled')), false);
+  });
 
   console.log('\nupstream failure resilience');
   {
