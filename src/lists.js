@@ -1,8 +1,11 @@
 'use strict';
 
 const anilist = require('./anilist');
+const jikan = require('./jikan');
+const kitsu = require('./kitsu');
 const mal = require('./mal');
 const mapper = require('./mapper');
+const router = require('./source');
 
 /**
  * One watch list, whichever tracker it came from.
@@ -49,20 +52,50 @@ async function fromMal(cfg, statuses) {
     else strays.push(entry);
   }
 
-  const batched = await anilist.mediaByIds([...byAniListId.keys()]);
+  // Artwork and titles have to come from somewhere. AniList is best, but a
+  // MyAnimeList list must not go dark just because AniList is down — that
+  // would defeat the entire point of tracking on MAL. So hydration falls back
+  // through the same three sources as the catalogues.
+  const anilistIds = [...byAniListId.keys()];
+  const kitsuIds = anilistIds
+    .map((id) => {
+      const entry = byAniListId.get(id);
+      const mapped = mapper.byMal(entry.malId);
+      return mapped ? mapped.kitsuId : null;
+    })
+    .filter(Boolean);
+
+  let media = [];
+  try {
+    media = await router.withFallback(
+      () => anilist.mediaByIds(anilistIds),
+      // Jikan has no batch endpoint, so the MAL standby is skipped here
+      // rather than firing one request per title through a service that is
+      // rate-limited to a few per second.
+      undefined,
+      () => kitsu.byIds(kitsuIds)
+    );
+  } catch (err) {
+    console.error('[lists] could not hydrate list entries:', err.message);
+  }
+
   const out = [];
-  for (const media of batched) {
-    const entry = byAniListId.get(media.id);
-    if (entry) out.push({ ...entry, media });
+  for (const item of media) {
+    // Match on whichever ID the answering source supplied.
+    const entry =
+      byAniListId.get(item.id) ||
+      (item.idMal ? entries.find((e) => e.malId === item.idMal) : null) ||
+      (item.idKitsu ? entries.find((e) => (mapper.byMal(e.malId) || {}).kitsuId === item.idKitsu) : null);
+    if (entry) out.push({ ...entry, media: item });
   }
 
   const lookups = await Promise.all(
     strays.slice(0, MAX_INDIVIDUAL_LOOKUPS).map(async (entry) => {
       try {
-        const media = await anilist.mediaById({ malId: entry.malId });
-        return media ? { ...entry, media } : null;
+        const found = await anilist.mediaById({ malId: entry.malId });
+        return found ? { ...entry, media: found } : null;
       } catch (err) {
-        console.error('[lists] MAL entry lookup failed:', err.message);
+        // A stray that cannot be resolved is one missing row, not a failure.
         return null;
       }
     })

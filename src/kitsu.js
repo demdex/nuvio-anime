@@ -209,10 +209,33 @@ async function season({ seasonName, year, page = 1, limit = 20 }, ttl = 2 * 3600
   );
 }
 
+/**
+ * Several titles by Kitsu ID in one request.
+ *
+ * This is what lets a MyAnimeList watch list render while AniList is down.
+ * JSON:API takes a comma-separated id filter, so a whole list costs one call.
+ */
+async function byIds(kitsuIds, ttl = 900) {
+  const ids = kitsuIds.filter(Boolean);
+  if (!ids.length) return [];
+
+  const out = [];
+  // Keep URLs to a sane length; Kitsu caps page size at 20 anyway.
+  for (let i = 0; i < ids.length; i += 20) {
+    const chunk = ids.slice(i, i + 20);
+    const key = `kitsu:byIds:${chunk.join(',')}`;
+    const batch = await cache.wrap(key, ttl, async () =>
+      mapList(await call('/anime', { 'filter[id]': chunk.join(','), 'page[limit]': 20 }))
+    );
+    out.push(...batch);
+  }
+  return out;
+}
+
 /** Cheap liveness probe for /diagnose. */
 async function ping() {
   const body = await call('/anime', { 'page[limit]': 1 });
   return Boolean(body && Array.isArray(body.data) && body.data.length);
 }
 
-module.exports = { toMedia, airing, top, movies, search, season, ping, HOSTS };
+module.exports = { toMedia, airing, top, movies, search, season, byIds, ping, HOSTS };
