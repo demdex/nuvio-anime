@@ -136,6 +136,21 @@ Environment variables in `.env` set the defaults for the bare `/manifest.json` U
 | `/configure` | Settings page and install URL builder |
 | `/plugins.json` | Live report on both scraper repositories |
 | `/health` | Mapping size, cache stats, uptime |
+| `/diagnose` | Runs the real calls and reports what is actually failing |
+
+---
+
+## The mapping
+
+`data/mapping.json` ships with the addon — about 0.9 MB, trimmed from the 7 MB upstream file to just the fields used here. It loads from disk in milliseconds with no network call, which matters on serverless hosts where every cold start would otherwise pay for the full download inside the request timeout.
+
+Refresh it when you like:
+
+```bash
+npm run build:mapping
+```
+
+Weekly is plenty; it mainly affects how quickly brand-new shows get streamable IDs. If the bundled file is ever missing, the addon falls back to downloading at runtime, and if that fails too it keeps serving catalogues with unmapped IDs rather than going dark.
 
 ---
 
@@ -160,6 +175,8 @@ curl -sL -o /tmp/nuvio-anime-list-full.json \
 
 **A show I know exists is missing.** It is probably unmapped and hidden. Add a TMDB key, or switch off `Hide titles with no IMDb or TMDB match` to see it.
 
+**Rows are empty, or the addon "stopped working".** Open `/diagnose` on your deployment. It runs the real calls and names the failure in plain language, rather than leaving you to infer it from an empty row. Then:
+
 **Rows are empty.** Check `/health` — if `mapping.entries` is 0 the addon could not reach GitHub. Also check whether `hideUnmapped` is filtering everything out; try `?hideUnmapped=false` via the configure page.
 
 **Personal rows are empty.** They need an AniList or MAL username, and the profile must be public unless you supplied an AniList token. If you pinned *Track progress with* to one tracker, only that one's username counts.
@@ -169,6 +186,8 @@ curl -sL -o /tmp/nuvio-anime-list-full.json \
 **Catalogues load but nothing plays.** That is the scraper side, not this addon. Confirm **Enable local scrapers** is on, both repositories are added, and at least one anime scraper is enabled. Scrapers also come and go as sites move.
 
 **Wrong season plays.** The mapping puts each AniList entry on a TMDB season; a brand-new sequel may not be mapped yet. It usually fixes itself within a week or two, since the source rebuilds daily.
+
+**AniList refuses requests on a shared host.** AniList rate-limits per IP, and serverless platforms put many projects behind the same addresses. If `/diagnose` reports the AniList check failing with a 403, that is what happened. Longer cache TTLs help; a different host or a small paid instance with its own IP helps more.
 
 **AniList rate limits.** Responses are cached (2–5 minutes for schedule rows, hours for static ones) and identical concurrent requests are de-duplicated. If you still hit limits, you are probably running many clients against one instance.
 

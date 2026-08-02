@@ -5,6 +5,8 @@ const express = require('express');
 
 const config = require('./src/config');
 const catalogs = require('./src/catalogs');
+const anilist = require('./src/anilist');
+const lists = require('./src/lists');
 const metaBuilder = require('./src/meta');
 const mapper = require('./src/mapper');
 const plugins = require('./src/plugins');
@@ -222,6 +224,62 @@ app.get('/plugins.json', async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
+});
+
+/**
+ * Plain-language diagnosis.
+ *
+ * Catalogue handlers deliberately return an empty row rather than an error,
+ * so Nuvio shows a quiet gap instead of a broken shelf. The cost is that a
+ * total outage and an ordinary quiet hour look identical from the outside.
+ * This endpoint pays that cost back: it runs the real calls and reports what
+ * actually happened.
+ */
+app.get('/diagnose', async (req, res) => {
+  const checks = [];
+
+  await mapper.load();
+  const mapping = mapper.status();
+  checks.push({
+    name: 'ID mapping',
+    ok: mapping.usable,
+    detail: mapping.usable
+      ? `${mapping.anilistIds} AniList IDs loaded from the ${mapping.origin} copy`
+      : `unusable — ${mapping.lastError || 'not loaded'}`,
+  });
+
+  let anilistOk = false;
+  try {
+    const list = await anilist.media(
+      { page: 1, perPage: 5, sort: ['TRENDING_DESC'], format_in: ['TV'] },
+      0
+    );
+    anilistOk = list.length > 0;
+    checks.push({
+      name: 'AniList API',
+      ok: anilistOk,
+      detail: anilistOk ? `returned ${list.length} titles` : 'responded but returned nothing',
+    });
+  } catch (err) {
+    checks.push({ name: 'AniList API', ok: false, detail: err.message });
+  }
+
+  const cfg = config.parse(null);
+  checks.push({
+    name: 'Watch list',
+    ok: true,
+    detail: cfg.hasUser
+      ? `configured via ${lists.source(cfg)}`
+      : 'no username set — the three personal rows will be empty (this is normal for the bare URL)',
+  });
+
+  const failed = checks.filter((c) => !c.ok);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    ok: failed.length === 0,
+    summary: failed.length === 0 ? 'Everything checks out.' : `${failed.length} check(s) failing.`,
+    checks,
+  });
 });
 
 app.get('/health', async (req, res) => {
