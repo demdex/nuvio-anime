@@ -9,6 +9,7 @@ const anilist = require('./src/anilist');
 const lists = require('./src/lists');
 const jikan = require('./src/jikan');
 const source = require('./src/source');
+const kitsu = require('./src/kitsu');
 const metaBuilder = require('./src/meta');
 const mapper = require('./src/mapper');
 const plugins = require('./src/plugins');
@@ -263,6 +264,9 @@ app.get('/diagnose', async (req, res) => {
       detail: anilistOk ? `returned ${list.length} titles` : 'responded but returned nothing',
     });
   } catch (err) {
+    // Record the failure, not just report it. Otherwise the checks below can
+    // say AniList is broken while activeSource() still claims it is serving.
+    source.markDown(err);
     // The two kinds of 403 need opposite responses from the operator, so say
     // which one this is rather than leaving them to guess.
     const advice =
@@ -294,12 +298,28 @@ app.get('/diagnose', async (req, res) => {
         : 'responded but returned nothing',
     });
   } catch (err) {
+    // Record it, so activeSource() below reflects what would really happen.
+    source.markSourceDown('myanimelist', err);
     checks.push({
       name: 'MyAnimeList fallback',
       ok: false,
       detail: err.message,
-      advice: anilistOk ? undefined : 'Both sources are unavailable; catalogues will serve cached rows only.',
+      advice: anilistOk
+        ? undefined
+        : 'AniList is down too — Kitsu is carrying the catalogues.',
     });
+  }
+
+  try {
+    const alive = await kitsu.ping();
+    checks.push({
+      name: 'Kitsu fallback',
+      ok: alive,
+      detail: alive ? 'reachable and on standby' : 'responded but returned nothing',
+    });
+  } catch (err) {
+    source.markSourceDown('kitsu', err);
+    checks.push({ name: 'Kitsu fallback', ok: false, detail: err.message });
   }
 
   const cfg = config.parse(null);
@@ -312,11 +332,22 @@ app.get('/diagnose', async (req, res) => {
   });
 
   const failed = checks.filter((c) => !c.ok);
+  const active = source.activeSource();
+
+  // A failing source is only an outage if no source is left standing. Saying
+  // "2 checks failing" when catalogues are serving fine is alarming and wrong.
+  let summary;
+  if (!failed.length) summary = 'Everything checks out.';
+  else if (active === 'none') summary = 'No catalogue source is reachable. Cached rows only.';
+  else if (active === 'anilist') summary = `Catalogues are fine. ${failed.length} standby source(s) unavailable.`;
+  else summary = `AniList is unavailable; catalogues are serving from ${active}.`;
+
   res.setHeader('Cache-Control', 'no-store');
   res.json({
-    ok: failed.length === 0,
-    summary: failed.length === 0 ? 'Everything checks out.' : `${failed.length} check(s) failing.`,
-    servingFrom: source.status().active,
+    ok: active !== 'none',
+    allChecksPassed: failed.length === 0,
+    summary,
+    servingFrom: active,
     checks,
   });
 });

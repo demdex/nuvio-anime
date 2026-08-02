@@ -71,13 +71,17 @@ The addon reads both repositories live and reports what it finds at `/plugins.js
 
 ---
 
-## Two sources
+## Three sources
 
-Catalogue data comes from **AniList** by default and falls back to **MyAnimeList** (via Jikan) automatically.
+Catalogue data comes from **AniList**, falling back to **MyAnimeList** (via Jikan), then to **Kitsu**.
 
-This exists because AniList disables its API site-wide during load problems, returning 403 to everyone. Without a standby, that takes every row down at once. When a 403, a 5xx or a network failure appears, the addon switches to MyAnimeList, stops retrying AniList for ten minutes, and switches back on its own once AniList answers again. `/diagnose` reports which source is live under `servingFrom`.
+Two sources would have been enough in theory and were not in practice. AniList disables its API site-wide during load problems, returning 403 to everyone at once — and when that happens, every app depending on it fails over onto Jikan simultaneously, and Jikan starts returning 504s under the load. Two sources that fail together are one source. Kitsu runs its own database on its own infrastructure and inherits neither failure.
 
-What you lose while on the standby, stated plainly:
+Transient errors (504, timeouts) are retried twice with backoff before the source is abandoned; hard refusals (403) are not retried at all. A source that fails persistently is skipped for ten minutes rather than re-tried on every request, then given another chance automatically.
+
+`/diagnose` reports the live source under `servingFrom`. Note the difference between its two flags: `ok` means catalogues are serving, `allChecksPassed` means all three sources are healthy. A standby being down is not an outage.
+
+What you lose on each standby, stated plainly:
 
 | Row | On MyAnimeList |
 |---|---|
@@ -86,6 +90,8 @@ What you lose while on the standby, stated plainly:
 | Trending | Currently-airing by popularity; MAL has no true trending signal |
 | Top Rated, Movies, Seasonal, Recommended | Near-equivalent, MAL's own rankings |
 | Continue Watching, New Episode Available | Unaffected if you track on MAL; unavailable if you track on AniList |
+
+On Kitsu, less again: no genres (a separate request per title, not worth it), no studios, and seasons are approximated by start-date range since Kitsu has no season filter.
 
 Badges say less rather than guessing — no invented episode numbers, no fabricated times. IDs resolve through the same bundled mapping either way, so a title keeps the same IMDb or TMDB ID whichever source produced it and Nuvio's continuity holds.
 
