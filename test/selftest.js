@@ -323,8 +323,8 @@ global.fetch = async (url, options) => {
  * ------------------------------------------------------------------ */
 
 const app = require('../server');
-const configLib = require('../src/config');
-const mapper = require('../src/mapper');
+const configLib = require('../src/anime/config');
+const mapper = require('../src/anime/mapper');
 
 let failures = 0;
 let passes = 0;
@@ -378,7 +378,14 @@ async function main() {
   console.log('manifest');
   const manifest = await get(server, '/manifest.json');
   check('serves a manifest', () => assert.strictEqual(manifest.status, 200));
-  check('declares eleven catalogues', () => assert.strictEqual(manifest.body.catalogs.length, 11));
+  const ANIME_CATALOG_IDS = new Set([
+    'recently-aired', 'latest-episodes', 'airing-today', 'last-hour', 'trending',
+    'top-rated', 'continue-watching', 'new-episode', 'movies', 'seasonal', 'recommended',
+  ]);
+  check('declares eleven anime catalogues', () =>
+    assert.strictEqual(manifest.body.catalogs.filter((c) => ANIME_CATALOG_IDS.has(c.id)).length, 11));
+  check('also declares the four always-on kids brands (series + movie each)', () =>
+    assert.strictEqual(manifest.body.catalogs.filter((c) => !ANIME_CATALOG_IDS.has(c.id)).length, 8));
   check('catalogue order starts with Recently Aired', () =>
     assert.strictEqual(manifest.body.catalogs[0].id, 'recently-aired'));
   check('includes Latest Episodes', () =>
@@ -470,7 +477,7 @@ async function main() {
   const pinnedMal = configLib.parse(configLib.encode({ listSource: 'mal', anilistUser: 'someone' }));
   check('pinning MAL ignores an AniList username', () => assert.strictEqual(pinnedMal.hasUser, false));
 
-  const listsLib = require('../src/lists');
+  const listsLib = require('../src/anime/lists');
   check('auto prefers AniList when both are set', () =>
     assert.strictEqual(
       listsLib.source(configLib.parse(configLib.encode({ anilistUser: 'a', malUser: 'b' }))),
@@ -530,7 +537,7 @@ async function main() {
   // silently returns nothing useful for an enum value that does not exist.
   // Both failures look identical from the outside — an empty catalogue — so
   // they are worth catching here rather than in production.
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'anilist.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'anime', 'anilist.js'), 'utf8');
   const documents = [...source.matchAll(/const (\w*QUERY)\s*=\s*`([\s\S]*?)`/g)];
   check('finds every query document', () => assert.ok(documents.length >= 5));
   check('every declared variable is used', () => {
@@ -545,7 +552,7 @@ async function main() {
 
   const AIRING_SORTS = ['ID', 'ID_DESC', 'MEDIA_ID', 'MEDIA_ID_DESC', 'TIME', 'TIME_DESC', 'EPISODE', 'EPISODE_DESC'];
   check('airing sort values exist in AniList', () => {
-    const catalogSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'catalogs.js'), 'utf8');
+    const catalogSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'anime', 'catalogs.js'), 'utf8');
     for (const match of catalogSource.match(/sort: '([A-Z_]+)'/g) || []) {
       const value = match.split("'")[1];
       assert.ok(AIRING_SORTS.includes(value), `${value} is not an AiringSort`);
@@ -554,8 +561,8 @@ async function main() {
 
   console.log('\nMyAnimeList failover');
   {
-    const sourceLib = require('../src/source');
-    const cacheLib = require('../src/cache');
+    const sourceLib = require('../src/anime/source');
+    const cacheLib = require('../src/anime/cache');
     cacheLib.clear();
     sourceLib.reset();
 
@@ -612,8 +619,8 @@ async function main() {
 
   console.log('\nMAL list survives an AniList outage');
   {
-    const sourceLib = require('../src/source');
-    const cacheLib = require('../src/cache');
+    const sourceLib = require('../src/anime/source');
+    const cacheLib = require('../src/anime/cache');
     cacheLib.clear();
     sourceLib.reset();
 
@@ -673,8 +680,8 @@ async function main() {
 
   console.log('\nboth primaries down (the real outage)');
   {
-    const sourceLib = require('../src/source');
-    const cacheLib = require('../src/cache');
+    const sourceLib = require('../src/anime/source');
+    const cacheLib = require('../src/anime/cache');
     cacheLib.clear();
     sourceLib.reset();
 
@@ -721,14 +728,14 @@ async function main() {
   }
 
   check('504 is treated as retryable, 403 is not', () => {
-    const sourceLib = require('../src/source');
+    const sourceLib = require('../src/anime/source');
     assert.strictEqual(sourceLib.isTransient(new Error('Jikan HTTP 504')), true);
     assert.strictEqual(sourceLib.isTransient(new Error('AniList 403: disabled')), false);
   });
 
   console.log('\nupstream failure resilience');
   {
-    const cacheLib = require('../src/cache');
+    const cacheLib = require('../src/anime/cache');
     cacheLib.clear();
 
     // Prime a value, let it expire, then fail the refresh. The stale value
@@ -793,7 +800,7 @@ async function main() {
   });
 
   check('hideUnmapped is ignored when the mapping is unusable', () => {
-    const metaLib = require('../src/meta');
+    const metaLib = require('../src/anime/meta');
     const original = mapper.isUsable;
     mapper.isUsable = () => false;
     try {

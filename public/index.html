@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nuvio Anime — set up your catalogues</title>
-<meta name="description" content="Anime catalogues for Nuvio, built from the AniList broadcast schedule.">
+<title>Nuvio Anime &amp; Kids — set up your catalogues</title>
+<meta name="description" content="Anime catalogues for Nuvio, built from the AniList broadcast schedule, plus always-on PBS Kids / Disney Junior / Nick Jr. / CBeebies catalogues.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
@@ -397,18 +397,19 @@
 
 <header class="masthead">
   <div class="wrap">
-    <p class="wordmark">Nuvio <span>Anime</span></p>
+    <p class="wordmark">Nuvio <span>Anime &amp; Kids</span></p>
     <div class="onair"><span class="dot" aria-hidden="true"></span><span id="clock">--:--:-- UTC</span></div>
   </div>
 </header>
 
 <main>
   <div class="wrap hero">
-    <p class="eyebrow">Catalogue add-on · AniList schedule</p>
-    <h1>Anime rows that know what time it is.</h1>
+    <p class="eyebrow">Catalogue add-on · AniList schedule + always-on kids brands</p>
+    <h1>Anime rows that know what time it is — plus PBS Kids, Disney Junior, Nick Jr. &amp; CBeebies.</h1>
     <p class="lede">
-      Eleven catalogues built from the broadcast schedule rather than a popularity dump: what aired
-      in the last hour, what lands today, what you are behind on. Every entry carries an
+      Eleven anime catalogues built from the broadcast schedule rather than a popularity dump: what aired
+      in the last hour, what lands today, what you are behind on. Four kids catalogues ride along
+      automatically, no setup required beyond a server-side TMDB key. Every entry carries an
       <strong>IMDb or TMDB ID</strong>, which is what the anime scrapers in your plugin repositories
       need to find a stream.
     </p>
@@ -437,8 +438,27 @@
 
   <section>
     <div class="wrap">
+      <h2>Kids catalogues</h2>
+      <p class="section-lede">
+        PBS Kids, Disney Junior, Nick Jr. and CBeebies are always included alongside the anime rows above —
+        no settings, no config segment, nothing below on this page affects them. They need one thing on the
+        <em>server</em>: a <code>TMDB_API_KEY</code> environment variable (free from
+        <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org</a>).
+        The same key also powers the optional TMDB fallback lookups for the anime rows below, so one key does both jobs.
+      </p>
+      <div class="chips">
+        <span class="chip on">PBS Kids</span>
+        <span class="chip on">Disney Junior</span>
+        <span class="chip on">Nick Jr.</span>
+        <span class="chip on">CBeebies</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
       <h2>Your settings</h2>
-      <p class="section-lede">Add an AniList or MyAnimeList username to switch on the three personal rows.</p>
+      <p class="section-lede">Add an AniList or MyAnimeList username to switch on the three personal rows. These settings are for the anime catalogues only — the kids catalogues above don't use any of this.</p>
 
       <div class="grid">
         <div class="field">
@@ -478,7 +498,7 @@
         <div class="field">
           <label for="tmdbApiKey">TMDB API key — optional</label>
           <input type="password" id="tmdbApiKey" placeholder="optional" spellcheck="false">
-          <p class="note">Adds episode titles and stills, and rescues shows too new for the offline mapping — up to eight lookups per row, cached for a day.</p>
+          <p class="note">Adds episode titles and stills, and rescues shows too new for the offline mapping — up to eight lookups per row, cached for a day. Leave blank to use the server's own <code>TMDB_API_KEY</code> (the same one the kids catalogues need).</p>
         </div>
 
         <div class="field">

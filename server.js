@@ -1,19 +1,36 @@
 'use strict';
 
+require('dotenv').config();
+
 const path = require('path');
 const express = require('express');
 
-const config = require('./src/config');
-const catalogs = require('./src/catalogs');
-const anilist = require('./src/anilist');
-const lists = require('./src/lists');
-const jikan = require('./src/jikan');
-const source = require('./src/source');
-const kitsu = require('./src/kitsu');
-const metaBuilder = require('./src/meta');
-const mapper = require('./src/mapper');
-const plugins = require('./src/plugins');
-const cache = require('./src/cache');
+/* ------------------------------------------------------------------ *
+ * Anime (AniList-driven) modules — unchanged from nuvio-anime-addon.  *
+ * ------------------------------------------------------------------ */
+const animeConfig = require('./src/anime/config');
+const animeCatalogs = require('./src/anime/catalogs');
+const anilist = require('./src/anime/anilist');
+const lists = require('./src/anime/lists');
+const jikan = require('./src/anime/jikan');
+const source = require('./src/anime/source');
+const kitsu = require('./src/anime/kitsu');
+const animeMeta = require('./src/anime/meta');
+const mapper = require('./src/anime/mapper');
+const animeCache = require('./src/anime/cache');
+
+/* ------------------------------------------------------------------ *
+ * Kids (TMDB brand-driven) modules — unchanged from nuvio-jr-addon.   *
+ * ------------------------------------------------------------------ */
+const kidsCatalogs = require('./src/kids/catalogs');
+const kidsMeta = require('./src/kids/meta');
+
+/* ------------------------------------------------------------------ *
+ * Shared — one plugins module reports scraper-repo status for both.  *
+ * (This is the anime addon's richer version; it also flags which      *
+ * scrapers look anime-capable, which is still useful info here.)      *
+ * ------------------------------------------------------------------ */
+const plugins = require('./src/anime/plugins');
 
 const app = express();
 const PORT = process.env.PORT || 7000;
@@ -35,37 +52,56 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 /* ------------------------------------------------------------------ *
  * Manifest                                                            *
+ *                                                                      *
+ * One manifest, one install URL. Anime catalogues respect the same     *
+ * per-user config segment the anime addon always used (AniList user,   *
+ * MAL user, TMDB key, enabledCatalogs, etc). Kids catalogues carry no   *
+ * config of their own and always appear, unaffected by enabledCatalogs *
+ * — they're a fixed set of four brands, always on.                     *
  * ------------------------------------------------------------------ */
 
+function catalogEntry(c) {
+  return {
+    id: c.id,
+    type: c.type,
+    name: c.name,
+    extra: c.extra,
+    extraSupported: c.extra.map((e) => e.name),
+  };
+}
+
 function buildManifest(cfg, baseUrl) {
-  const wanted = cfg.enabledCatalogs.length
-    ? catalogs.CATALOGS.filter((c) => cfg.enabledCatalogs.includes(c.id))
-    : catalogs.CATALOGS;
+  const wantedAnime = cfg.enabledCatalogs.length
+    ? animeCatalogs.CATALOGS.filter((c) => cfg.enabledCatalogs.includes(c.id))
+    : animeCatalogs.CATALOGS;
+
+  const catalogs = [
+    ...wantedAnime.map(catalogEntry),
+    ...kidsCatalogs.CATALOGS.map(catalogEntry),
+  ];
 
   return {
-    id: 'community.nuvio.anime',
+    id: 'community.nuvio.animekids',
     version: VERSION,
-    name: 'Nuvio Anime',
+    name: 'Nuvio Anime & Kids',
     description:
-      'Anime catalogues driven by the AniList airing schedule — recently aired, latest episodes, ' +
-      'airing today, trending, seasonal and your own watch list. Every entry carries an IMDb or ' +
-      'TMDB ID so Nuvio local scrapers can resolve streams.',
+      'Anime catalogues driven by the AniList airing schedule (recently aired, latest episodes, ' +
+      'airing today, trending, seasonal, your own watch list) plus always-on preschool & kids ' +
+      'catalogues from PBS Kids, Disney Junior, Nick Jr. and CBeebies. Every entry carries an ' +
+      'IMDb or TMDB ID so Nuvio local scrapers can resolve streams.',
     // Served from this addon so the manifest never depends on someone else's CDN.
     logo: `${baseUrl}/logo.svg`,
     background: `${baseUrl}/background.svg`,
-    catalogs: wanted.map((c) => ({
-      id: c.id,
-      type: c.type,
-      name: c.name,
-      extra: c.extra,
-      extraSupported: c.extra.map((e) => e.name),
-    })),
+    catalogs,
     resources: [
       { name: 'catalog', types: ['series', 'movie'] },
-      // Titles that map to IMDb or TMDB are left to Cinemeta and Nuvio's own
-      // TMDB integration, which already model seasons correctly. Only the
-      // AniList-native IDs need metadata from here.
-      { name: 'meta', types: ['series', 'movie'], idPrefixes: ['anilist:', 'mal:', 'kitsu:'] },
+      // Anime meta is claimed for its own AniList-native ID namespaces. Kids
+      // meta is claimed for tmdb: (the Jr addon already did this on its own —
+      // merging doesn't add any new competing-addon exposure). For a tmdb:
+      // request, the handler below tries the anime reverse-mapping first
+      // (covers anime titles that happen to carry a TMDB id) before falling
+      // back to the plain TMDB meta builder the kids catalogues use.
+      { name: 'meta', types: ['series', 'movie'], idPrefixes: ['anilist:', 'mal:', 'kitsu:', 'tmdb:'] },
     ],
     types: ['series', 'movie'],
     idPrefixes: ['tt', 'tmdb:', 'anilist:', 'mal:', 'kitsu:'],
@@ -108,61 +144,103 @@ function parseExtra(segment, query) {
  * ------------------------------------------------------------------ */
 
 async function manifestHandler(req, res) {
-  const cfg = config.parse(req.params.config);
+  const cfg = animeConfig.parse(req.params.config);
   res.setHeader('Cache-Control', 'public, max-age=600');
   res.json(buildManifest(cfg, baseUrlOf(req)));
 }
 
 async function catalogHandler(req, res) {
-  const cfg = config.parse(req.params.config);
   const { type, id } = req.params;
   const extra = parseExtra(req.params.extra, req.query);
 
-  const definition = catalogs.BY_ID.get(id);
-  if (!definition || definition.type !== type) {
-    return res.status(404).json({ metas: [], err: 'Unknown catalogue' });
-  }
+  const animeDef = animeCatalogs.BY_ID.get(id);
+  if (animeDef && animeDef.type === type) {
+    const cfg = animeConfig.parse(req.params.config);
+    try {
+      const metas = await animeCatalogs.fetchCatalog(id, {
+        cfg,
+        skip: Number(extra.skip) || 0,
+        genre: extra.genre || null,
+        search: extra.search || null,
+      });
 
-  try {
-    const metas = await catalogs.fetchCatalog(id, {
-      cfg,
-      skip: Number(extra.skip) || 0,
-      genre: extra.genre || null,
-      search: extra.search || null,
-    });
+      if (animeDef.requiresUser && !cfg.hasUser) {
+        console.warn(`[catalog] ${id} needs an AniList username; returning empty row`);
+      }
 
-    if (definition.requiresUser && !cfg.hasUser) {
-      console.warn(`[catalog] ${id} needs an AniList username; returning empty row`);
+      // Personal rows go stale fast; schedule rows are fine for a few minutes.
+      const maxAge = animeDef.requiresUser ? 60 : id === 'last-hour' ? 120 : 300;
+      res.setHeader('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=600`);
+      return res.json({ metas: metas || [] });
+    } catch (err) {
+      console.error(`[catalog] ${id} failed:`, err.message);
+      // An error object would make Nuvio show a broken row; an empty row is quieter.
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ metas: [] });
     }
-
-    // Personal rows go stale fast; schedule rows are fine for a few minutes.
-    const maxAge = definition.requiresUser ? 60 : id === 'last-hour' ? 120 : 300;
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=600`);
-    res.json({ metas: metas || [] });
-  } catch (err) {
-    console.error(`[catalog] ${id} failed:`, err.message);
-    // An error object would make Nuvio show a broken row; an empty row is quieter.
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({ metas: [] });
   }
+
+  const kidsBrand = kidsCatalogs.BRAND_BY_ID.get(id);
+  if (kidsBrand && (type === 'series' || type === 'movie')) {
+    try {
+      const items = await kidsCatalogs.fetchCatalog(type, id, extra);
+      res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=600');
+      return res.json({ metas: items || [] });
+    } catch (err) {
+      console.error(`[catalog] kids ${id} failed:`, err.message);
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ metas: [] });
+    }
+  }
+
+  return res.status(404).json({ metas: [], err: 'Unknown catalogue' });
 }
 
 async function metaHandler(req, res) {
-  const cfg = config.parse(req.params.config);
   const { type, id } = req.params;
 
   try {
-    await mapper.load();
-    const media = await metaBuilder.resolveMedia(id);
-    if (!media) return res.status(404).json({ meta: null, err: 'Not found' });
+    if (id.startsWith('anilist:') || id.startsWith('mal:') || id.startsWith('kitsu:')) {
+      const cfg = animeConfig.parse(req.params.config);
+      await mapper.load();
+      const media = await animeMeta.resolveMedia(id);
+      if (!media) return res.status(404).json({ meta: null, err: 'Not found' });
 
-    const meta = await metaBuilder.toFullMeta(media, cfg, id);
-    meta.type = type;
-    res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=3600');
-    res.json({ meta });
+      const meta = await animeMeta.toFullMeta(media, cfg, id);
+      meta.type = type;
+      res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=3600');
+      return res.json({ meta });
+    }
+
+    if (id.startsWith('tmdb:')) {
+      // Anime titles sometimes carry a TMDB id too (the offline mapping goes
+      // both ways). Try that first so an anime row's meta page still gets
+      // AniList-quality data (studio, correct season/episode numbering, the
+      // AniList link) instead of the plain TMDB shape.
+      const cfg = animeConfig.parse(req.params.config);
+      await mapper.load();
+      const media = await animeMeta.resolveMedia(id);
+      if (media) {
+        const meta = await animeMeta.toFullMeta(media, cfg, id);
+        meta.type = type;
+        res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=3600');
+        return res.json({ meta });
+      }
+
+      // Not anime — fall through to the kids/general TMDB meta builder.
+      const tmdbId = id.split(':')[1];
+      if (type !== 'series' && type !== 'movie') {
+        return res.status(404).json({ meta: null, err: 'unknown type' });
+      }
+      const item = type === 'series' ? await kidsMeta.seriesMeta(tmdbId) : await kidsMeta.movieMeta(tmdbId);
+      res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=3600');
+      return res.json({ meta: item });
+    }
+
+    return res.status(404).json({ meta: null, err: 'Unknown id namespace' });
   } catch (err) {
     console.error(`[meta] ${id} failed:`, err.message);
-    res.status(500).json({ meta: null, err: 'Lookup failed' });
+    return res.status(500).json({ meta: null, err: 'Lookup failed' });
   }
 }
 
@@ -218,7 +296,7 @@ app.get(new RegExp(`^\\/${CONFIG_SEGMENT}configure\\/?$`), (req, res) => {
 
 app.get('/', (req, res) => res.redirect('/configure'));
 
-/** Which scrapers the companion repositories offer for anime. */
+/** Which scrapers the companion repositories offer — used by both catalogue families. */
 app.get('/plugins.json', async (req, res) => {
   try {
     const data = await plugins.status();
@@ -236,10 +314,11 @@ app.get('/plugins.json', async (req, res) => {
  * so Nuvio shows a quiet gap instead of a broken shelf. The cost is that a
  * total outage and an ordinary quiet hour look identical from the outside.
  * This endpoint pays that cost back: it runs the real calls and reports what
- * actually happened.
+ * actually happened. Covers the anime sources; kids catalogues only need one
+ * thing (a working TMDB_API_KEY), which /health also reports.
  */
 async function diagnoseHandler(req, res) {
-  const cfg = config.parse(req.params ? req.params.config : null);
+  const cfg = animeConfig.parse(req.params ? req.params.config : null);
   const configured = Boolean(req.params && req.params.config);
   const checks = [];
 
@@ -377,6 +456,15 @@ async function diagnoseHandler(req, res) {
     }
   }
 
+  // Kids catalogues have exactly one dependency: a working TMDB key.
+  checks.push({
+    name: 'Kids catalogues (TMDB_API_KEY)',
+    ok: Boolean(process.env.TMDB_API_KEY),
+    detail: process.env.TMDB_API_KEY
+      ? 'set — PBS Kids, Disney Junior, Nick Jr. and CBeebies rows should populate'
+      : 'not set on this server — those four rows will error out. Set TMDB_API_KEY in the environment.',
+  });
+
   const failed = checks.filter((c) => !c.ok);
   const active = source.activeSource();
 
@@ -405,7 +493,7 @@ function describeConfig(cfg) {
   if (cfg.anilistToken) parts.push('AniList token set');
   if (cfg.malUser) parts.push(`MAL user "${cfg.malUser}"`);
   parts.push(cfg.malClientId ? 'MAL client ID set' : 'no MAL client ID');
-  if (cfg.tmdbApiKey) parts.push('TMDB key set');
+  if (cfg.tmdbApiKey) parts.push('TMDB key set (per-user fallback lookups)');
   parts.push(`list source: ${cfg.listSource}`);
   if (!cfg.anilistUser && !cfg.anilistToken && !cfg.malUser) {
     parts.push('NO USERNAME — a client ID alone cannot identify whose list to read');
@@ -421,7 +509,8 @@ app.get('/health', async (req, res) => {
     version: VERSION,
     mapping: mapper.status(),
     source: source.status(),
-    cache: cache.stats(),
+    animeCache: animeCache.stats(),
+    kidsTmdbConfigured: Boolean(process.env.TMDB_API_KEY),
     uptime: Math.round(process.uptime()),
   });
 });
@@ -433,6 +522,14 @@ app.use((req, res) => res.status(404).json({ err: 'Not found' }));
  * ------------------------------------------------------------------ */
 
 if (require.main === module) {
+  if (!process.env.TMDB_API_KEY) {
+    console.warn(
+      '\n⚠  TMDB_API_KEY is not set — the four Nuvio Jr kids catalogues (PBS Kids, Disney ' +
+      'Junior, Nick Jr., CBeebies) will error out until it is. Copy .env.example to .env and ' +
+      'add a free TMDB v3 key. Anime catalogues are unaffected.\n'
+    );
+  }
+
   // Warm the mapping so the first catalogue request is not the one that waits.
   mapper.load().then(() => {
     const status = mapper.status();
@@ -440,7 +537,7 @@ if (require.main === module) {
   });
 
   app.listen(PORT, () => {
-    console.log(`Nuvio Anime addon on http://127.0.0.1:${PORT}/manifest.json`);
+    console.log(`Nuvio Anime & Kids addon on http://127.0.0.1:${PORT}/manifest.json`);
     console.log(`Configure at http://127.0.0.1:${PORT}/configure`);
   });
 }

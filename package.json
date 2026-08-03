@@ -1,7 +1,7 @@
 {
-  "name": "nuvio-anime-addon",
-  "version": "1.7.0",
-  "description": "Anime catalogues for Nuvio (Stremio addon protocol) \u2014 airing schedule, trending, seasonal and your AniList or MyAnimeList watch list, mapped to TMDB/IMDb so Nuvio's local scrapers can resolve streams.",
+  "name": "nuvio-anime-kids-addon",
+  "version": "1.0.0",
+  "description": "Merged Nuvio/Stremio addon: AniList-driven anime catalogues (recently aired, latest episodes, airing today, trending, seasonal, watch list) plus always-on preschool & kids catalogues from PBS Kids, Disney Junior, Nick Jr. and CBeebies — one manifest, one install URL.",
   "main": "server.js",
   "type": "commonjs",
   "engines": {
@@ -14,14 +14,18 @@
     "build:mapping": "node scripts/build-mapping.js"
   },
   "dependencies": {
+    "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "jsdom": "^30.0.1"
+    "jsdom": "^30.0.1",
+    "node-cache": "^5.1.2",
+    "node-fetch": "^2.7.0"
   },
   "keywords": [
     "nuvio",
     "stremio",
     "anime",
     "anilist",
+    "kids",
     "addon"
   ],
   "license": "MIT",
